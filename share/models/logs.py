@@ -15,6 +15,7 @@ from django.utils import timezone
 from django.utils.translation import ugettext_lazy as _
 
 from share.util import chunked
+from share.harvest.exceptions import HarvesterConcurrencyError
 
 
 __all__ = ('HarvestLog', )
@@ -216,6 +217,9 @@ class AbstractBaseLog(models.Model):
     @contextmanager
     def handle(self):
         error = None
+        # Flush any pending changes. Any updates
+        # beyond here will be field specific
+        self.save()
 
         # Protect ourselves from SIGKILL
         def on_sigkill(sig, frame):
@@ -225,6 +229,8 @@ class AbstractBaseLog(models.Model):
         self.start()
         try:
             yield
+        except HarvesterConcurrencyError as e:
+            self.reschedule()
         except Exception as e:
             error = e
             self.fail(error)

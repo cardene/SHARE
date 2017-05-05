@@ -40,6 +40,14 @@ class SourceFactory(DjangoModelFactory):
         model = models.Source
 
 
+class ListGenerator(list):
+
+    def __call__(self, *args, **kwargs):
+        if hasattr(self, 'side_effect'):
+            raise self.side_effect
+        return (x for x in self)
+
+
 class HarvesterFactory(DjangoModelFactory):
     key = factory.Faker('bs')
 
@@ -54,7 +62,7 @@ class HarvesterFactory(DjangoModelFactory):
             KEY = self.key
             VERSION = 1
 
-            _do_fetch = mock.Mock(return_value=[])
+            _do_fetch = ListGenerator()
 
         mock_entry = mock.create_autospec(pkg_resources.EntryPoint, instance=True)
         mock_entry.name = self.key

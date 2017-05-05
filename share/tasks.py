@@ -2,7 +2,6 @@ import abc
 import datetime
 import functools
 import logging
-import random
 import threading
 
 import pendulum
@@ -12,14 +11,11 @@ import requests
 from django.apps import apps
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
-from django.db import DatabaseError
 from django.db import transaction
 from django.urls import reverse
-from django.utils import timezone
 from django.db.models.expressions import RawSQL
 
 from share.change import ChangeGraph
-from share.harvest.exceptions import HarvesterConcurrencyError, HarvesterDisabledError
 from share.models import HarvestLog
 from share.models import Source
 from share.models import RawDatum, NormalizedData, ChangeSet, CeleryTask, CeleryProviderTask, ShareUser, SourceConfig
@@ -224,110 +220,27 @@ class HarvesterTask(SourceTask):
         elif not created:
             log.task_id = self.request.id
 
-        # Use the locking connection to avoid putting everything else in a transaction.
-        with transaction.atomic(using='locking'):
-            error = None
-
-            # Django recommends against trys inside of transactions, we're just preserving our lock as long as possible.
-            try:
-                # Attempt to lock the harvester config to make sure this is the only job making requests
-                # to this specific source.
-                try:
-                    self.config.acquire_lock(using='locking')
-                except HarvesterConcurrencyError as e:
-                    if force:
-                        logger.warning('Force is True; ignoring exception %r', e)
-                    else:
-                        raise e
-
-                # Don't run disabled harvesters unless special cased
-                if (self.config.disabled or self.config.source.is_deleted) and not (force or ignore_disabled):
-                    raise HarvesterDisabledError('Harvester {!r} is disabled. Either enable it, run with force=True, or ignore_disabled=True'.format(self.config))
-
-                # TODO Evaluate splitting and other optimizations here
-
-                log.start()
-                logger.info('Harvesting %s - %s from %r', start, end, self.config)
-
-                with transaction.atomic():
-                    datum_ids = {True: [], False: []}
-
-                    try:
-                        # Harvesters expect datetime objects currently.
-                        # TODO Update Harvesters to accept dates only
-                        h_end = datetime.datetime.combine(end, datetime.time(0, 0, 0, 0, timezone.utc))
-                        h_start = datetime.datetime.combine(start, datetime.time(0, 0, 0, 0, timezone.utc))
-
-                        for datum in harvester.harvest(h_start, h_end, limit=limit, **kwargs):
-                            datum_ids[datum.created].append(datum.id)
-                            if datum.created:
-                                logger.debug('Found new %r from %r', datum, self.config)
-                            else:
-                                logger.debug('Rediscovered new %r from %r', datum, self.config)
-                    except DatabaseError as e:
-                        # DatabaseError force the transaction to be rolled back
-                        logger.exception('Database error occured while harvesting %r; bailing', self.config)
-                        raise e
-                    except Exception as e:
-                        logger.exception('Harvesting %r failed; cleaning up', self.config)
-                        error = e
-
-                    logger.info('Collected %d new RawData from %r', len(datum_ids[True]), self.config)
-                    logger.debug('Rediscovered %d RawData from %r', len(datum_ids[False]), self.config)
-
-                    try:
-                        # Attempt to populate the throughtable for any RawData that made it to the database
-                        RawDatum.objects.link_to_log(log, datum_ids[True] + datum_ids[False])
-                    except Exception as e:
-                        logger.exception('Failed to link RawData to %r', log)
-                        # Don't shadow the original error if it exists
-                        if error is None and not force:
-                            raise e
-                        elif error is not None and force:
-                            logger.warning('Force is set to True; ignoring exception')
-                        else:
-                            logger.warning('Harvesting also failed. Opting to raise that exception')
-
-                if error is not None and not force:
-                    logger.debug('Re-raising the harvester exception')
-                    raise error
-                elif error is not None and force:
-                    logger.warning('Force is set to True; ignoring exception')
-
-                if not ingest:
-                    logger.warning('Not starting normalizer tasks, ingest = False')
-                else:
-                    for raw_id in datum_ids[True]:
-                        task = NormalizerTask().apply_async((self.started_by.id, self.config.label, raw_id,))
-                        logger.debug('Started normalizer task %s for %s', task, raw_id)
-                    if superfluous:
-                        for raw_id in datum_ids[False]:
-                            task = NormalizerTask().apply_async((self.started_by.id, self.config.label, raw_id,))
-                            logger.debug('Superfluously started normalizer task %s for %s', task, raw_id)
-
-            except HarvesterConcurrencyError as e:
-                # If we did not create this log and the task ids don't match. There's a very good
-                # chance that this exact task is being run twice.
-                # if not created and log.task_id != self.task_id and log.date_modified - datetime.datetime.utcnow() > datetime.timedelta(minutes=10):
-                #     pass
-                log.reschedule()
-                # Use random to add jitter to help break up locking issues
-                # Kinda hacky, allow a stupidly large number of retries as there is no options for infinite
-                raise self.retry(
-                    exc=e,
-                    max_retries=99999,
-                    countdown=(random.random() + 1) * min(settings.CELERY_RETRY_BACKOFF_BASE ** self.request.retries, 60 * 15)
-                )
-            except Exception as e:
-                log.fail(e)
-                logger.exception('Failed harvester task (%r, %s, %s)', self.config, start, end)
-                # No log needed here, max retries is 3
-                raise self.retry(countdown=min(settings.CELERY_RETRY_BACKOFF_BASE ** self.request.retries, 60 * 15), exc=e)
-
-            if force and error:
-                log.forced(error)
+        datum_ids = {True: [], False: []}
+        for datum in harvester.harvest_from_log(log, force=force, ignore_disabled=ignore_disabled, limit=limit, **kwargs):
+            datum_ids[datum.created].append(datum.id)
+            if datum.created:
+                logger.debug('Found new %r from %r', datum, self.config)
             else:
-                log.succeed()
+                logger.debug('Rediscovered new %r from %r', datum, self.config)
+
+        logger.info('Collected %d new RawData from %r', len(datum_ids[True]), self.config)
+        logger.debug('Rediscovered %d RawData from %r', len(datum_ids[False]), self.config)
+
+        if not ingest:
+            logger.warning('Not starting normalizer tasks, ingest = False')
+        else:
+            for raw_id in datum_ids[True]:
+                task = NormalizerTask().apply_async((self.started_by.id, self.config.label, raw_id,))
+                logger.debug('Started normalizer task %s for %s', task, raw_id)
+            if superfluous:
+                for raw_id in datum_ids[False]:
+                    task = NormalizerTask().apply_async((self.started_by.id, self.config.label, raw_id,))
+                    logger.debug('Superfluously started normalizer task %s for %s', task, raw_id)
 
 
 class NormalizerTask(SourceTask):
@@ -411,23 +324,30 @@ class BotTask(AppTask):
 
 
 @celery.shared_task(bind=True)
-def harvest_task(self):
+def harvest_task(self, ingest=True, exhaust=True):
     with transaction.atomic(using='locking'):
         log = HarvestLog.objects.annotate(
             lock_aquired=RawSQL(
-                'SELECT pg_try_advisory_xact_lock(%s::regclass::integer, %s)',
-                (SourceConfig._meta.db_table, HarvestLog._meta.get_field('source_config').db_column)
+                'SELECT pg_try_advisory_xact_lock(%s::regclass::integer, {}.{})'.format(
+                    HarvestLog._meta.db_table,
+                    HarvestLog._meta.get_field('source_config').column,
+                ), (SourceConfig._meta.db_table, )
             )
-        ).filter(
+        ).select_related('source_config').filter(
             lock_aquired=True,
             source_config__disabled=False,
             source_config__source__is_deleted=False
         ).exclude(
-            status=HarvestLog.SELECT.succeed
+            status=HarvestLog.STATUS.succeeded
         ).using('locking').first()
 
         if log is None:
-            logger.warning('No HarvestLogs are currently available')
+            return logger.warning('No HarvestLogs are currently available')
+        elif exhaust:
+            logger.debug('Spawning another harvest task')
+            harvest_task.apply_async((), {'ingest': ingest, 'exhaust': exhaust})
 
         # No need to lock, we've already aquired it here
-        log.source_config.get_harvester().harvest_job(log, lock=False)
+        for datum in log.source_config.get_harvester().harvest_from_log(log, lock=False):
+            if ingest and datum.created:
+                NormalizerTask().apply_async((1, log.source_config.label, datum.id,))

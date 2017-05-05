@@ -5,6 +5,7 @@ import datetime
 import logging
 import types
 
+import pendulum
 import requests
 
 from django.utils import timezone
@@ -82,8 +83,8 @@ class BaseHarvester(metaclass=abc.ABCMeta):
             return  # No need to do anything
 
         # Cast to datetimes for compat reasons
-        start = datetime.datetime.combine(start, datetime.time(0, 0, 0, 0, timezone.utc))
-        end = datetime.datetime.combine(end, datetime.time(0, 0, 0, 0, timezone.utc))
+        start = pendulum.Pendulum.instance(datetime.datetime.combine(start, datetime.time(0, 0, 0, 0, timezone.utc)))
+        end = pendulum.Pendulum.instance(datetime.datetime.combine(end, datetime.time(0, 0, 0, 0, timezone.utc)))
 
         # TODO Remove me in 2.9.0
         if hasattr(self, 'shift_range'):
@@ -137,7 +138,7 @@ class BaseHarvester(metaclass=abc.ABCMeta):
             logger.info('Harvesting %s - %s from %r', start, end, self.config)
             yield from RawDatum.objects.store_chunk(self.config, self.fetch_date_range(start, end, **kwargs), limit=limit)
 
-    def harvest_job(self, harvest_log, **kwargs):
+    def harvest_from_log(self, harvest_log, **kwargs):
         """
 
         Args:
@@ -152,9 +153,9 @@ class BaseHarvester(metaclass=abc.ABCMeta):
         datum_ids = []
         logger.info('Harvesting %r', harvest_log)
 
-        with harvest_log.handle(self.version):
+        with harvest_log.handle(self.VERSION):
             try:
-                for datum in self.harvest_date(harvest_log.start_date, harvest_log.end_date, **kwargs):
+                for datum in self.harvest_date_range(harvest_log.start_date, harvest_log.end_date, **kwargs):
                     datum_ids.append(datum.id)
                     yield datum
             except Exception as e:
@@ -162,7 +163,7 @@ class BaseHarvester(metaclass=abc.ABCMeta):
                 raise error
             finally:
                 try:
-                    harvest_log.raw_data.add(*datum_ids, bulk=True)
+                    harvest_log.raw_data.add(*datum_ids)
                 except Exception as e:
                     logger.exception('Failed to connection %r to raw data', harvest_log)
                     # Avoid shadowing the original error
@@ -173,7 +174,7 @@ class BaseHarvester(metaclass=abc.ABCMeta):
         """Fetch date from this provider inside of the given date range.
 
         Any HTTP[S] requests MUST be sent using the self.requests client.
-        It will automatically in force rate limits
+        It will automatically enforce rate limits
 
         Args:
             start_date (datetime):
