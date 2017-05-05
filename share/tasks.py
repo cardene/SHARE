@@ -412,15 +412,22 @@ class BotTask(AppTask):
 
 @celery.shared_task(bind=True)
 def harvest_task(self):
-    with transaction.atomic():
+    with transaction.atomic(using='locking'):
         log = HarvestLog.objects.annotate(
             lock_aquired=RawSQL(
                 'SELECT pg_try_advisory_xact_lock(%s::regclass::integer, %s)',
                 (SourceConfig._meta.db_table, HarvestLog._meta.get_field('source_config').db_column)
             )
-        ).filter(lock_aquired=True, source_config__disabled=False, source_config__source__is_deleted=False).first()
+        ).filter(
+            lock_aquired=True,
+            source_config__disabled=False,
+            source_config__source__is_deleted=False
+        ).exclude(
+            status=HarvestLog.SELECT.succeed
+        ).using('locking').first()
 
         if log is None:
             logger.warning('No HarvestLogs are currently available')
 
-        log.source_config.get_harvester().harvest_job(log)
+        # No need to lock, we've already aquired it here
+        log.source_config.get_harvester().harvest_job(log, lock=False)

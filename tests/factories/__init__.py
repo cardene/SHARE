@@ -54,7 +54,7 @@ class HarvesterFactory(DjangoModelFactory):
             KEY = self.key
             VERSION = 1
 
-            do_harvest = mock.Mock(return_value=[])
+            _do_fetch = mock.Mock(return_value=[])
 
         mock_entry = mock.create_autospec(pkg_resources.EntryPoint, instance=True)
         mock_entry.name = self.key

@@ -144,17 +144,17 @@ class AbstractBaseLog(models.Model):
         abstract = True
         ordering = ('-date_modified', )
 
-    def start(self, save=True):
+    def start(self):
         # TODO double check existing values to make sure everything lines up.
         stamp = timezone.now()
         logger.debug('Setting %r to started at %r', self, stamp)
         self.status = self.STATUS.started
         self.date_started = stamp
-        if save:
-            self.save()
+        self.save(update_fields=('status', 'date_started', 'date_modified'))
+
         return True
 
-    def fail(self, exception, save=True):
+    def fail(self, exception):
         logger.debug('Setting %r to failed due to %r', self, exception)
 
         if not isinstance(exception, str):
@@ -163,27 +163,26 @@ class AbstractBaseLog(models.Model):
 
         self.status = self.STATUS.failed
         self.context = exception
+        self.save(update_fields=('status', 'context', 'date_modified'))
 
-        if save:
-            self.save()
         return True
 
-    def succeed(self, save=True):
+    def succeed(self):
         self.context = ''
         self.completions += 1
         self.status = self.STATUS.succeeded
         logger.debug('Setting %r to succeeded with %d completions', self, self.completions)
-        if save:
-            self.save()
+        self.save(update_fields=('context', 'completions', 'status', 'date_modified'))
+
         return True
 
-    def reschedule(self, save=True):
+    def reschedule(self):
         self.status = self.STATUS.rescheduled
-        if save:
-            self.save()
+        self.save(update_fields=('status', 'date_modified'))
+
         return True
 
-    def forced(self, exception, save=True):
+    def forced(self, exception):
         logger.debug('Setting %r to forced with context %r', self, exception)
 
         if not isinstance(exception, str):
@@ -192,29 +191,26 @@ class AbstractBaseLog(models.Model):
 
         self.status = self.STATUS.forced
         self.context = exception
+        self.save(update_fields=('status', 'context', 'date_modified'))
 
-        if save:
-            self.save()
         return True
 
-    def skip(self, reason, save=True):
+    def skip(self, reason):
         logger.debug('Setting %r to skipped with context %r', self, reason)
 
         self.completions += 1
         self.context = reason.value
         self.status = self.STATUS.skipped
+        self.save(update_fields=('status', 'context', 'completions', 'date_modified'))
 
-        if save:
-            self.save()
         return True
 
-    def cancel(self, save=True):
+    def cancel(self):
         logger.debug('Setting %r to cancelled', self)
 
         self.status = self.STATUS.cancelled
+        self.save(update_fields=('status', 'date_modified'))
 
-        if save:
-            self.save()
         return True
 
     @contextmanager

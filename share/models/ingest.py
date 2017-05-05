@@ -15,7 +15,6 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.deconstruct import deconstructible
 
-from share.harvest.exceptions import HarvesterConcurrencyError
 from share.models.fuzzycount import FuzzyCountManager
 from share.util import chunked
 
@@ -129,6 +128,8 @@ class SourceConfig(models.Model):
         return self.transformer.get_class()(self, **(self.transformer_kwargs or {}))
 
     def acquire_lock(self, using='locking'):
+        from share.harvest.exceptions import HarvesterConcurrencyError
+
         # NOTE: Must be in transaction
         logger.debug('Attempting to lock %r', self)
         with connections[using].cursor() as cursor:

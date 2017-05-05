@@ -74,7 +74,7 @@ def harvest(args, argv):
         'set_spec': args.get('--set-spec') or None
     }.items() if v is not None}
 
-    for doc_id, data in harvester.raw(start_date, end_date, **kwargs):
+    for doc_id, data in harvester.fetch_date_range(start_date, end_date, **kwargs):
         decoded = data
         if not isinstance(decoded, str):
             decoded = data.decode()

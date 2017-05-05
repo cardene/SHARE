@@ -3,7 +3,6 @@ import abc
 import collections
 import datetime
 import logging
-import signal
 import types
 
 import requests
@@ -11,8 +10,9 @@ import requests
 from django.utils import timezone
 from django.db import transaction
 
-from share.harvest.exceptions import HarvesterConcurrencyError, HarvesterDisabledError
+from share.harvest.exceptions import HarvesterDisabledError
 from share.harvest.ratelimit import RateLimittedProxy
+from share.harvest.serialization import EverythingSerializer
 from share.models import RawDatum
 
 
@@ -24,15 +24,15 @@ class BaseHarvester(metaclass=abc.ABCMeta):
     """
 
     Fetch:
-        Aquire and serialize data from a remote source, respecting rate limits locally.
-        fetch* methods return a generator that yields FetchResult objects
+        Aquire and serialize data from a remote source, respecting rate limits.
+        fetch* methods return a generator that yield FetchResult objects
 
     Harvest:
         Fetch and store data, respecting global rate limits.
-        harvest* methods return a generator that yields RawDatum objects
+        harvest* methods return a generator that yield RawDatum objects
     """
 
-    SERIALIZER_CLASS = None
+    SERIALIZER_CLASS = EverythingSerializer
 
     def __init__(self, source_config, pretty=False):
         self.config = source_config
@@ -66,7 +66,7 @@ class BaseHarvester(metaclass=abc.ABCMeta):
         """
         return self.fetch_date_range(date - datetime.timedelta(days=1), date, **kwargs)
 
-    def fetch_date_range(self, start: datetime.date, end: datetime.date, limit=None):
+    def fetch_date_range(self, start: datetime.date, end: datetime.date, limit=None, **kwargs):
         """Fetch data from the specified date range.
         """
         if not isinstance(start, datetime.date):
@@ -82,15 +82,15 @@ class BaseHarvester(metaclass=abc.ABCMeta):
             return  # No need to do anything
 
         # Cast to datetimes for compat reasons
-        start = datetime.datetime.combine(end, datetime.time(0, 0, 0, 0, timezone.utc))
-        end = datetime.datetime.combine(start, datetime.time(0, 0, 0, 0, timezone.utc))
+        start = datetime.datetime.combine(start, datetime.time(0, 0, 0, 0, timezone.utc))
+        end = datetime.datetime.combine(end, datetime.time(0, 0, 0, 0, timezone.utc))
 
         # TODO Remove me in 2.9.0
         if hasattr(self, 'shift_range'):
             logger.warning('%r implements a deprecated interface. Handle date transforms in _do_fetch. shift_range will no longer be called in 2.9.0')
             start, end = self.shift_range(start, end)
 
-        data_gen = self._do_fetch(start, end)
+        data_gen = self._do_fetch(start, end, **kwargs)
 
         if not isinstance(data_gen, types.GeneratorType) and len(data_gen) != 0:
             raise ValueError('{!r}._do_fetch must return a GeneratorType for optimal performance and memory usage')
@@ -111,13 +111,14 @@ class BaseHarvester(metaclass=abc.ABCMeta):
     def harvest_date(self, date: datetime.date, **kwargs):
         return self.fetch_date_range(date - datetime.timedelta(days=1), date, **kwargs)
 
-    def harvest_date_range(self, start: datetime.date, end: datetime.date, limit=None, force=False, ignore_disabled=False):
+    def harvest_date_range(self, start: datetime.date, end: datetime.date, limit=None, force=False, ignore_disabled=False, lock=True, **kwargs):
         """
 
         Args:
             limit (int, optional): The maximum number of unique data to harvest. Defaults to None
             force (bool, optional): Force this harvest to finish against all odds. Defaults to False
             ignore_disabled (bool, optional): Don't check if this Harvester or Source is disabled or deleted. Defaults to False
+            lock (bool, optional): Lock the SourceConfig before harvesting to prevent rate limit violations. Defaults to True
 
         Yields:
             RawDatum:
@@ -129,10 +130,14 @@ class BaseHarvester(metaclass=abc.ABCMeta):
         if (self.config.disabled or self.config.source.is_deleted) and not (force or ignore_disabled):
             raise HarvesterDisabledError('Harvester {!r} is disabled. Either enable it, run with force=True, or ignore_disabled=True'.format(self.config))
 
-        logger.info('Harvesting %s - %s from %r', start, end, self.config)
-        yield from RawDatum.objects.store_chunk(self.config, self.fetch_date_range(start, end), limit=limit)
+        with transaction.atomic(using='locking'):
+            if lock:
+                self.config.acquire_lock(using='locking')
 
-    def harvest_job(self, harvest_log, limit=None):
+            logger.info('Harvesting %s - %s from %r', start, end, self.config)
+            yield from RawDatum.objects.store_chunk(self.config, self.fetch_date_range(start, end, **kwargs), limit=limit)
+
+    def harvest_job(self, harvest_log, **kwargs):
         """
 
         Args:
@@ -149,7 +154,7 @@ class BaseHarvester(metaclass=abc.ABCMeta):
 
         with harvest_log.handle(self.version):
             try:
-                for datum in self.harvest_date(harvest_log.start_date, harvest_log.end_date, limit=limit):
+                for datum in self.harvest_date(harvest_log.start_date, harvest_log.end_date, **kwargs):
                     datum_ids.append(datum.id)
                     yield datum
             except Exception as e:
@@ -164,7 +169,7 @@ class BaseHarvester(metaclass=abc.ABCMeta):
                     if not error:
                         raise e
 
-    def _do_fetch(self, start: datetime.datetime, end: datetime.datetime) -> Iterator[FetchResult]:
+    def _do_fetch(self, start: datetime.datetime, end: datetime.datetime, **kwargs) -> Iterator[FetchResult]:
         """Fetch date from this provider inside of the given date range.
 
         Any HTTP[S] requests MUST be sent using the self.requests client.
@@ -180,6 +185,6 @@ class BaseHarvester(metaclass=abc.ABCMeta):
         """
         if hasattr(self, 'do_harvest'):
             logger.warning('%r implements a deprecated interface. do_harvest has been replaced by _do_fetch for clarity', self)
-            return self.do_harvest(start, end)
+            return self.do_harvest(start, end, **kwargs)
 
         raise NotImplementedError()

@@ -92,6 +92,6 @@ class Command(BaseCommand):
         config = SourceConfig.objects.get(label=label)
         harvester = config.get_harvester()
         for id in options['ids']:
-            raw = harvester.harvest_by_id(id)
+            raw = harvester.harvest_id(id)
             task = NormalizerTask().apply_async((user.id, config.label, raw.id,))
             self.stdout.write('Raw data {} harvested from {}, saved as {}. Started normalizer task {}.'.format(id, config.label, raw.id, task))
