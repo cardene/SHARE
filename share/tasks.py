@@ -16,6 +16,7 @@ from django.db import DatabaseError
 from django.db import transaction
 from django.urls import reverse
 from django.utils import timezone
+from django.db.models.expressions import RawSQL
 
 from share.change import ChangeGraph
 from share.harvest.exceptions import HarvesterConcurrencyError, HarvesterDisabledError
@@ -407,3 +408,19 @@ class BotTask(AppTask):
         bot = self.config.get_bot(self.started_by, last_run=last_run, **kwargs)
         logger.info('Running bot %s. Started by %s', bot, self.started_by)
         bot.run()
+
+
+@celery.shared_task(bind=True)
+def harvest_task(self):
+    with transaction.atomic():
+        log = HarvestLog.objects.annotate(
+            lock_aquired=RawSQL(
+                'SELECT pg_try_advisory_xact_lock(%s::regclass::integer, %s)',
+                (SourceConfig._meta.db_table, HarvestLog._meta.get_field('source_config').db_column)
+            )
+        ).filter(lock_aquired=True, source_config__disabled=False, source_config__source__is_deleted=False).first()
+
+        if log is None:
+            logger.warning('No HarvestLogs are currently available')
+
+        log.source_config.get_harvester().harvest_job(log)

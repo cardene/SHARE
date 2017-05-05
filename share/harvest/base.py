@@ -1,68 +1,170 @@
-import abc
-import json
-import time
-import types
-import logging
-import datetime
-from typing import Tuple
-from typing import Union
 from typing import Iterator
+import abc
+import collections
+import datetime
+import logging
+import signal
+import types
 
-import pendulum
 import requests
+
+from django.utils import timezone
+from django.db import transaction
+
+from share.harvest.exceptions import HarvesterConcurrencyError, HarvesterDisabledError
+from share.harvest.ratelimit import RateLimittedProxy
+from share.models import RawDatum
 
 
 logger = logging.getLogger(__name__)
-
-
-class RateLimittedProxy:
-
-    def __init__(self, proxy_to, calls, per_second):
-        self._proxy_to = proxy_to
-        self._allowance = calls
-        self._calls = calls
-        self._last_call = 0
-        self._per_second = per_second
-        self._cache = {}
-
-    def _check_limit(self):
-        if self._allowance > 1:
-            return
-        wait = self._per_second - (time.time() - self._last_call)
-        if wait > 0:
-            logger.debug('Rate limitting %s. Sleeping for %s', self._proxy_to, wait)
-            time.sleep(wait)
-        self._allowance = self._calls
-        logger.debug('Access granted for %s', self._proxy_to)
-
-    def _called(self):
-        self._allowance -= 1
-        self._last_call = time.time()
-
-    def __call__(self, *args, **kwargs):
-        self._check_limit()
-        ret = self._proxy_to(*args, **kwargs)
-        self._called()
-        return ret
-
-    def __getattr__(self, name):
-        return self._cache.setdefault(name, self.__class__(getattr(self._proxy_to, name), self._calls, self._per_second))
+FetchResult = collections.namedtuple('FetchResult', ('identifier', 'datum'))
 
 
 class BaseHarvester(metaclass=abc.ABCMeta):
+    """
 
-    def __init__(self, source_config, **kwargs):
-        self.last_call = 0
-        self.new_raw_ids = []
-        self.old_raw_ids = []
+    Fetch:
+        Aquire and serialize data from a remote source, respecting rate limits locally.
+        fetch* methods return a generator that yields FetchResult objects
+
+    Harvest:
+        Fetch and store data, respecting global rate limits.
+        harvest* methods return a generator that yields RawDatum objects
+    """
+
+    SERIALIZER_CLASS = None
+
+    def __init__(self, source_config, pretty=False):
         self.config = source_config
-        self.kwargs = kwargs
+        self.serializer = self.SERIALIZER_CLASS(pretty)
+
         # TODO Add custom user agent
-        # TODO Make rate limit apply across threads
         self.requests = RateLimittedProxy(requests.Session(), self.config.rate_limit_allowance, self.config.rate_limit_period)
 
-    @abc.abstractmethod
-    def do_harvest(self, start_date: pendulum.Pendulum, end_date: pendulum.Pendulum, **kwargs) -> Iterator[Tuple[str, Union[str, dict, bytes]]]:
+    def fetch_id(self, identifier: str) -> FetchResult:
+        """
+        Fetch a document by provider ID.
+
+        Optional to implement, intended for dev and manual testing.
+
+        Args:
+            identifier (str): Unique ID the provider uses to identify works.
+
+        Returns:
+            FetchResult
+
+        """
+        raise NotImplementedError('{!r} does not support fetching by ID'.format(self))
+
+    def fetch(self, **kwargs):
+        """Fetch data from today.
+        """
+        return self.fetch_date_range(datetime.date.today() - datetime.timedelta(days=1), datetime.date.today(), **kwargs)
+
+    def fetch_date(self, date: datetime.date, **kwargs):
+        """Fetch data from the specified date.
+        """
+        return self.fetch_date_range(date - datetime.timedelta(days=1), date, **kwargs)
+
+    def fetch_date_range(self, start: datetime.date, end: datetime.date, limit=None):
+        """Fetch data from the specified date range.
+        """
+        if not isinstance(start, datetime.date):
+            raise TypeError('start must be a datetime.date. Got {!r}'.format(start))
+
+        if not isinstance(end, datetime.date):
+            raise TypeError('end must be a datetime.date. Got {!r}'.format(end))
+
+        if start >= end:
+            raise ValueError('start must be before end. {!r} > {!r}'.format(start, end))
+
+        if limit == 0:
+            return  # No need to do anything
+
+        # Cast to datetimes for compat reasons
+        start = datetime.datetime.combine(end, datetime.time(0, 0, 0, 0, timezone.utc))
+        end = datetime.datetime.combine(start, datetime.time(0, 0, 0, 0, timezone.utc))
+
+        # TODO Remove me in 2.9.0
+        if hasattr(self, 'shift_range'):
+            logger.warning('%r implements a deprecated interface. Handle date transforms in _do_fetch. shift_range will no longer be called in 2.9.0')
+            start, end = self.shift_range(start, end)
+
+        data_gen = self._do_fetch(start, end)
+
+        if not isinstance(data_gen, types.GeneratorType) and len(data_gen) != 0:
+            raise ValueError('{!r}._do_fetch must return a GeneratorType for optimal performance and memory usage')
+
+        for i, (identifier, datum) in enumerate(data_gen):
+            yield FetchResult(identifier, self.serializer.serialize(datum))
+
+            if limit is not None and i >= limit:
+                break
+
+    def harvest_id(self, identifier) -> RawDatum:
+        res = self.fetch_by_id(identifier)
+        return RawDatum.objects.store_data(res.identifier, res.datum, self.config)
+
+    def harvest(self, **kwargs):
+        return self.harvest_date_range(datetime.date.today() - datetime.timedelta(days=1), datetime.date.today(), **kwargs)
+
+    def harvest_date(self, date: datetime.date, **kwargs):
+        return self.fetch_date_range(date - datetime.timedelta(days=1), date, **kwargs)
+
+    def harvest_date_range(self, start: datetime.date, end: datetime.date, limit=None, force=False, ignore_disabled=False):
+        """
+
+        Args:
+            limit (int, optional): The maximum number of unique data to harvest. Defaults to None
+            force (bool, optional): Force this harvest to finish against all odds. Defaults to False
+            ignore_disabled (bool, optional): Don't check if this Harvester or Source is disabled or deleted. Defaults to False
+
+        Yields:
+            RawDatum:
+
+        """
+        if self.serializer.pretty:
+            raise ValueError('Harvests may not occur while using a pretty serializer, to ensure that data is optimally deduplicated')
+
+        if (self.config.disabled or self.config.source.is_deleted) and not (force or ignore_disabled):
+            raise HarvesterDisabledError('Harvester {!r} is disabled. Either enable it, run with force=True, or ignore_disabled=True'.format(self.config))
+
+        logger.info('Harvesting %s - %s from %r', start, end, self.config)
+        yield from RawDatum.objects.store_chunk(self.config, self.fetch_date_range(start, end), limit=limit)
+
+    def harvest_job(self, harvest_log, limit=None):
+        """
+
+        Args:
+            harvest_log (HarvestLog): The HarvestLog that describes the parameters of this harvest
+            limit (int, optional): The maximum number of unique data to harvest. Defaults to None
+
+        Yields:
+            RawDatum:
+
+        """
+        error = None
+        datum_ids = []
+        logger.info('Harvesting %r', harvest_log)
+
+        with harvest_log.handle(self.version):
+            try:
+                for datum in self.harvest_date(harvest_log.start_date, harvest_log.end_date, limit=limit):
+                    datum_ids.append(datum.id)
+                    yield datum
+            except Exception as e:
+                error = e
+                raise error
+            finally:
+                try:
+                    harvest_log.raw_data.add(*datum_ids, bulk=True)
+                except Exception as e:
+                    logger.exception('Failed to connection %r to raw data', harvest_log)
+                    # Avoid shadowing the original error
+                    if not error:
+                        raise e
+
+    def _do_fetch(self, start: datetime.datetime, end: datetime.datetime) -> Iterator[FetchResult]:
         """Fetch date from this provider inside of the given date range.
 
         Any HTTP[S] requests MUST be sent using the self.requests client.
@@ -73,120 +175,11 @@ class BaseHarvester(metaclass=abc.ABCMeta):
             end_date (datetime):
 
         Returns:
-            Iterator<Tuple<str, str|dict|bytes>>: The fetched data paired with
-            the unique ID that this provider uses.
+            Iterator<FetchResult>:
 
-            [
-                ('1', {'my': 'doc'}),
-                ('2', {'your': 'doc'}),
-            ]
         """
+        if hasattr(self, 'do_harvest'):
+            logger.warning('%r implements a deprecated interface. do_harvest has been replaced by _do_fetch for clarity', self)
+            return self.do_harvest(start, end)
+
         raise NotImplementedError()
-
-    def fetch_by_id(self, provider_id):
-        """
-        Fetch a document by provider ID.
-
-        Optional to implement, intended for dev and manual testing.
-
-        Args:
-            provider_id (str): Unique ID the provider uses to identify works.
-
-        Returns:
-            str|dict|bytes: Fetched data.
-
-        """
-        raise NotImplementedError()
-
-    def shift_range(self, start_date: pendulum.Pendulum, end_date: pendulum.Pendulum) -> pendulum.Pendulum:
-        """Most providers will not need this method.
-
-        For providers that should be collecting data at an offset, see figshare.
-
-        Args:
-            start_date (datetime):
-            end_date (datetime):
-
-        Returns:
-            (datetime, datetime): The shifted date range
-        """
-        return start_date, end_date
-
-    def harvest(self, start_date: [datetime.datetime, datetime.timedelta, pendulum.Pendulum], end_date: [datetime.datetime, datetime.timedelta, pendulum.Pendulum], shift_range: bool=True, limit: int=None, **kwargs) -> list:
-        from share.models import RawDatum
-        start_date, end_date = self._validate_dates(start_date, end_date)
-
-        rawdata = ((identifier, self.encode_data(datum)) for identifier, datum in self.do_harvest(start_date, end_date, **kwargs))
-        assert isinstance(rawdata, types.GeneratorType), 'do_harvest did not return a generator type, found {!r}. Make sure to use the yield keyword'.format(type(rawdata))
-
-        yield from RawDatum.objects.store_chunk(self.config, rawdata, limit=limit)
-
-    def raw(self, start_date: [datetime.datetime, datetime.timedelta, pendulum.Pendulum], end_date: [datetime.datetime, datetime.timedelta, pendulum.Pendulum], shift_range: bool=True, limit: int=None, **kwargs) -> list:
-        start_date, end_date = self._validate_dates(start_date, end_date)
-        count, harvest = 0, self.do_harvest(start_date, end_date, **kwargs)
-        assert isinstance(harvest, types.GeneratorType), 'do_harvest did not return a generator type, found {!r}. Make sure to use the yield keyword'.format(type(harvest))
-
-        for doc_id, datum in harvest:
-            yield doc_id, self.encode_data(datum, pretty=True)
-            count += 1
-            if limit and count >= limit:
-                break
-
-    def harvest_by_id(self, doc_id):
-        from share.models import RawDatum
-        datum = self.fetch_by_id(doc_id)
-        return RawDatum.objects.store_data(doc_id, self.encode_data(datum), self.config)
-
-    def encode_data(self, data, pretty=False) -> str:
-        if isinstance(data, str):
-            return data
-        if isinstance(data, bytes):
-            logger.warning(
-                '%r.encode_data got a bytes instance. '
-                'do_harvest should be returning str types as only the harvester will know how to properly encode the bytes'
-                'defaulting to decoding as utf-8',
-                self,
-            )
-            return data.decode('utf-8')
-        if isinstance(data, dict):
-            return self.encode_json(data, pretty=pretty)
-        raise Exception('Unable to properly encode data blob {!r}. Data should be a dict, bytes, or str objects.'.format(data))
-
-    def encode_json(self, data: dict, pretty: bool=False) -> str:
-        """Orders a python dict recursively so it will always hash to the
-        same value. Used for Dedupping harvest results
-        Args:
-            data (dict):
-
-        Returns:
-            str: json.dumpsed ordered dictionary
-        """
-        return json.dumps(data, sort_keys=True, indent=4 if pretty else None)
-
-    def _validate_dates(self, start_date, end_date):
-        assert not (bool(start_date) ^ bool(end_date)), 'Must specify both a start and end date or neither'
-        assert isinstance(start_date, (datetime.timedelta, datetime.datetime, pendulum.Pendulum)) and isinstance(end_date, (datetime.timedelta, datetime.datetime, pendulum.Pendulum)), 'start_date and end_date must be either datetimes or timedeltas'
-        assert not (isinstance(start_date, datetime.timedelta) and isinstance(end_date, datetime.timedelta)), 'Only one of start_date and end_date may be a timedelta'
-
-        if isinstance(start_date, datetime.datetime):
-            start_date = pendulum.instance(start_date)
-
-        if isinstance(end_date, datetime.datetime):
-            end_date = pendulum.instance(end_date)
-
-        if isinstance(start_date, datetime.timedelta):
-            start_date = pendulum.instance(end_date + start_date)
-
-        if isinstance(end_date, datetime.timedelta):
-            end_date = pendulum.instance(start_date + end_date)
-
-        og_start, og_end = start_date, end_date
-        start_date, end_date = self.shift_range(start_date, end_date)
-        assert isinstance(start_date, pendulum.Pendulum) and isinstance(end_date, pendulum.Pendulum), 'transpose_time_window must return a tuple of 2 datetimes'
-
-        if (og_start, og_end) != (start_date, end_date):
-            logger.warning('Date shifted from {} - {} to {} - {}. Disable shifting by passing shift_range=False'.format(og_start, og_end, start_date, end_date))
-
-        assert start_date < end_date, 'start_date must be before end_date {} < {}'.format(start_date, end_date)
-
-        return start_date, end_date

@@ -1,8 +1,10 @@
+import signal
 import enum
 import itertools
 import logging
 import traceback
 import types
+from contextlib import contextmanager
 
 from model_utils import Choices
 
@@ -113,6 +115,7 @@ class AbstractBaseLog(models.Model):
         (6, 'forced', _('Forced')),
         (7, 'skipped', _('Skipped')),
         (8, 'retried', _('Retrying')),
+        (9, 'cancelled', _('Cancelled')),
     )
 
     class SkipReasons(enum.Enum):
@@ -205,6 +208,40 @@ class AbstractBaseLog(models.Model):
             self.save()
         return True
 
+    def cancel(self, save=True):
+        logger.debug('Setting %r to cancelled', self)
+
+        self.status = self.STATUS.cancelled
+
+        if save:
+            self.save()
+        return True
+
+    @contextmanager
+    def handle(self):
+        error = None
+
+        # Protect ourselves from SIGKILL
+        def on_sigkill(sig, frame):
+            self.cancel()
+        prev_handler = signal.signal(signal.SIGTERM, on_sigkill)
+
+        self.start()
+        try:
+            yield
+        except Exception as e:
+            error = e
+            self.fail(error)
+        else:
+            self.succeed()
+        finally:
+            # Detach from SIGKILL, resetting the previous handle
+            signal.signal(signal.SIGTERM, prev_handler)
+
+            # Reraise the error if we caught one
+            if error:
+                raise error
+
 
 class HarvestLog(AbstractBaseLog):
     # May want to look into using DateRange in the future
@@ -214,6 +251,10 @@ class HarvestLog(AbstractBaseLog):
 
     class Meta:
         unique_together = ('source_config', 'start_date', 'end_date', 'harvester_version', 'source_config_version', )
+
+    def handle(self, harvester_version):
+        self.harvester_version = harvester_version
+        return super().handle()
 
     def spawn_task(self, ingest=True, force=False, limit=None, superfluous=False, ignore_disabled=False, async=True):
         from share.tasks import HarvesterTask
