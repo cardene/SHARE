@@ -35,7 +35,8 @@ class BaseHarvester(metaclass=abc.ABCMeta):
 
     SERIALIZER_CLASS = EverythingSerializer
 
-    def __init__(self, source_config, pretty=False):
+    def __init__(self, source_config, pretty=False, **kwargs):
+        self.kwargs = kwargs
         self.config = source_config
         self.serializer = self.SERIALIZER_CLASS(pretty)
 

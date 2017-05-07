@@ -210,6 +210,7 @@ class HarvestLogAdmin(admin.ModelAdmin):
         HarvestLog.STATUS.forced: 'maroon',
         HarvestLog.STATUS.skipped: 'orange',
         HarvestLog.STATUS.retried: 'darkseagreen',
+        HarvestLog.STATUS.cancelled: 'grey',
     }
 
     def source(self, obj):

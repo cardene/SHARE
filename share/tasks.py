@@ -326,20 +326,36 @@ class BotTask(AppTask):
 @celery.shared_task(bind=True)
 def harvest_task(self, ingest=True, exhaust=True):
     with transaction.atomic(using='locking'):
-        log = HarvestLog.objects.annotate(
-            lock_aquired=RawSQL(
-                'SELECT pg_try_advisory_xact_lock(%s::regclass::integer, {}.{})'.format(
-                    HarvestLog._meta.db_table,
-                    HarvestLog._meta.get_field('source_config').column,
-                ), (SourceConfig._meta.db_table, )
-            )
-        ).select_related('source_config').filter(
-            lock_aquired=True,
-            source_config__disabled=False,
-            source_config__source__is_deleted=False
-        ).exclude(
-            status=HarvestLog.STATUS.succeeded
-        ).using('locking').first()
+        for _ in range(10):
+            log = HarvestLog.objects.annotate(
+                lock_acquired=RawSQL(
+                    'pg_try_advisory_xact_lock(%s::regclass::integer, {}.{})'.format(
+                        HarvestLog._meta.db_table,
+                        HarvestLog._meta.get_field('source_config').column,
+                    ), (SourceConfig._meta.db_table, )
+                ),
+                locked=RawSQL(
+                    "EXISTS(SELECT * FROM pg_locks WHERE locktype = 'advisory' AND objid = share_sourceconfig.id AND classid = 'share_sourceconfig' :: REGCLASS :: INTEGER AND locktype = 'advisory')",
+                    []
+                )
+            ).select_related('source_config').filter(
+                locked=False,
+                source_config__disabled=False,
+                source_config__source__is_deleted=False,
+                status__in=[
+                    HarvestLog.STATUS.created,
+                    HarvestLog.STATUS.started,
+                    HarvestLog.STATUS.rescheduled,
+                    HarvestLog.STATUS.cancelled,
+                ]
+            ).using('locking').first()
+
+            # Sometimes another process will beat us to the lock
+            # there doesn't appear to be a great way to avoid this
+            # while only locking one row, especially when limitted to
+            # Django's interface
+            if log is None or log.lock_acquired:
+                break
 
         if log is None:
             return logger.warning('No HarvestLogs are currently available')

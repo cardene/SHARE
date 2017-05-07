@@ -24,6 +24,7 @@ class DictSerializer(RawDatumSerializer):
 class EverythingSerializer(RawDatumSerializer):
     def __init__(self, pretty: bool=False):
         super().__init__(pretty=pretty)
+        self.warned = False
         self.dict_serializer = DictSerializer(pretty=pretty)
         logger.warning('%r is deprecated. Use a serializer meant for the data returned', self)
 
@@ -31,12 +32,14 @@ class EverythingSerializer(RawDatumSerializer):
         if isinstance(data, str):
             return data
         if isinstance(data, bytes):
-            logger.warning(
-                '%r.encode_data got a bytes instance. '
-                'do_harvest should be returning str types as only the harvester will know how to properly encode the bytes'
-                'defaulting to decoding as utf-8',
-                self,
-            )
+            if not self.warned:
+                self.warned = True
+                logger.warning(
+                    '%r.encode_data got a bytes instance. '
+                    'do_harvest should be returning str types as only the harvester will know how to properly encode the bytes '
+                    'defaulting to decoding as utf-8',
+                    self,
+                )
             return data.decode('utf-8')
         if isinstance(data, dict):
             return self.dict_serializer.serialize(data)

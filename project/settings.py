@@ -373,6 +373,11 @@ QUEUES = {
         'name': 'backharvest',
         'priority': -20,
         'modules': set(),
+    },
+    'HARVEST': {
+        'name': 'harvest',
+        'priority': -10,
+        'modules': {'share.tasks.harvest_task'},
     }
 }
 
