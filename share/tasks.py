@@ -363,7 +363,7 @@ def harvest_task(self, ingest=True, exhaust=True):
             logger.debug('Spawning another harvest task')
             harvest_task.apply_async((), {'ingest': ingest, 'exhaust': exhaust})
 
-        # No need to lock, we've already aquired it here
+        # No need to lock, we've already acquired it here
         for datum in log.source_config.get_harvester().harvest_from_log(log, lock=False):
             if ingest and datum.created:
                 NormalizerTask().apply_async((1, log.source_config.label, datum.id,))
