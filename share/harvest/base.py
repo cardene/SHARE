@@ -115,7 +115,7 @@ class BaseHarvester(metaclass=abc.ABCMeta):
         data_gen = self._do_fetch(start, end, **kwargs)
 
         if not isinstance(data_gen, types.GeneratorType) and len(data_gen) != 0:
-            raise ValueError('{!r}._do_fetch must return a GeneratorType for optimal performance and memory usage')
+            raise TypeError('{!r}._do_fetch must return a GeneratorType for optimal performance and memory usage'.format(self))
 
         for i, (identifier, datum) in enumerate(data_gen):
             yield FetchResult(identifier, self.serializer.serialize(datum))
@@ -172,7 +172,7 @@ class BaseHarvester(metaclass=abc.ABCMeta):
 
         """
         if self.serializer.pretty:
-            raise ValueError('Harvests may not occur while using a pretty serializer, to ensure that data is optimally deduplicated.')
+            raise ValueError('To ensure that data is optimally deduplicated, harvests may not occur while using a pretty serializer.')
 
         if (self.config.disabled or self.config.source.is_deleted) and not (force or ignore_disabled):
             raise HarvesterDisabledError('Harvester {!r} is disabled. Either enable it, run with force=True, or ignore_disabled=True.'.format(self.config))
