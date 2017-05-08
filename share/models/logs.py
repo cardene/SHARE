@@ -235,6 +235,7 @@ class AbstractBaseLog(models.Model):
         try:
             yield
         except HarvesterConcurrencyError as e:
+            error = e
             self.reschedule()
         except Exception as e:
             error = e

@@ -4,21 +4,21 @@ import functools
 import logging
 import threading
 
-import pendulum
 import celery
+import pendulum
 import requests
 
 from django.apps import apps
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
-from django.urls import reverse
 from django.db.models.expressions import RawSQL
+from django.urls import reverse
 
 from share.change import ChangeGraph
 from share.models import HarvestLog
-from share.models import Source
 from share.models import RawDatum, NormalizedData, ChangeSet, CeleryTask, CeleryProviderTask, ShareUser, SourceConfig
+from share.models import Source
 
 
 logger = logging.getLogger(__name__)

@@ -1,6 +1,5 @@
 from unittest import mock
 import datetime
-import math
 import random
 import threading
 import uuid
@@ -37,12 +36,12 @@ class SyncedThread(threading.Thread):
         self._end = threading.Event()
         self._start = threading.Event()
 
-        def _target():
+        def _target(*args, **kwargs):
             try:
                 with transaction.atomic(using='locking'):
-                    target()
+                    target(*args, **kwargs)
                     self._start.set()
-                    self._end.wait(30)
+                    self._end.wait(10)
             finally:
                 connections.close_all()
 
@@ -50,7 +49,7 @@ class SyncedThread(threading.Thread):
 
     def start(self):
         super().start()
-        self._start.wait(1)
+        self._start.wait(10)
 
     def join(self, timeout=1):
         self._end.set()
@@ -71,24 +70,26 @@ def test_sources_have_access_tokens():
 @pytest.mark.django_db
 class TestHarvestTask:
 
-    # def test_errors_on_locked(self, transactional_db, source_config):
-    #     t = SyncedThread(source_config.acquire_lock)
-    #     t.start()
+    def test_errors_on_locked(self, source_config):
+        t = SyncedThread(source_config.acquire_lock)
+        t.start()
 
-    #     with pytest.raises(HarvesterConcurrencyError):
-    #         harvest(source_config.source.user.id, source_config.label)
+        with pytest.raises(HarvesterConcurrencyError):
+            harvest(source_config.source.user.id, source_config.label)
 
-    #     t.join()
+        t.join()
 
-    #     assert HarvestLog.objects.filter(status=HarvestLog.STATUS.rescheduled).count() == 1
+        assert HarvestLog.objects.filter(status=HarvestLog.STATUS.rescheduled).count() == 1
 
-    # def test_force_ignores_lock_error(self, source_config):
-    #     t = SyncedThread(source_config.acquire_lock)
-    #     t.start()
+    def test_force_ignores_lock_error(self, source_config):
+        t = SyncedThread(source_config.acquire_lock)
+        t.start()
 
-    #     harvest(source_config.source.user.id, source_config.label, force=True)
+        harvest(source_config.source.user.id, source_config.label, force=True)
 
-    #     t.join()
+        t.join()
+
+        assert HarvestLog.objects.filter(status=HarvestLog.STATUS.succeeded).count() == 1
 
     def test_harvester_disabled(self, source_config):
         source_config.disabled = True

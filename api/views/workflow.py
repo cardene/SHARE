@@ -16,7 +16,7 @@ from api.serializers import FullNormalizedDataSerializer, BasicNormalizedDataSer
     RawDatumSerializer, ShareUserSerializer, SourceSerializer
 from share.models import RawDatum, NormalizedData, Source, SourceConfig, Transformer
 from share.tasks import DisambiguatorTask
-from share.harvest.base import BaseHarvester
+from share.harvest.serialization import DictSerializer
 
 
 __all__ = ('NormalizedDataViewSet', 'RawDatumViewSet', 'ShareUserViewSet', 'SourceViewSet', 'V1DataView')
@@ -216,7 +216,7 @@ class V1DataView(views.APIView):
                 return Response({'errors': 'Canonical URI not found in uris.', 'data': prelim_data}, status=status.HTTP_400_BAD_REQUEST)
 
             config = self._get_source_config(request.user)
-            raw = RawDatum.objects.store_data(doc_id, BaseHarvester.encode_json(self, prelim_data), config)
+            raw = RawDatum.objects.store_data(doc_id, DictSerializer(pretty=False).serialize(prelim_data), config)
 
         transformed_data = config.get_transformer().transform(raw.datum)
         data = {}
