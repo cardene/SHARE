@@ -23,8 +23,9 @@ from oauth2_provider.models import AccessToken
 
 from share.admin.readonly import ReadOnlyAdmin
 from share.admin.share_objects import CreativeWorkAdmin
+from share.admin.celery import CeleryTaskResultAdmin
 from share.models.banner import SiteBanner
-from share.models.celery import CeleryTask
+from share.models.celery import CeleryTaskResult
 from share.models.change import ChangeSet
 from share.models.core import NormalizedData, ShareUser
 from share.models.creative import AbstractCreativeWork
@@ -32,16 +33,18 @@ from share.models.ingest import RawDatum, Source, SourceConfig, Harvester, Trans
 from share.models.logs import HarvestLog
 from share.models.registration import ProviderRegistration
 from share.robot import RobotAppConfig
-from share.tasks import HarvesterTask
+# from share.tasks import HarvesterTask
 
 
 admin.site.register(AbstractCreativeWork, CreativeWorkAdmin)
+admin.site.register(CeleryTaskResult, CeleryTaskResultAdmin)
 
 
 class NormalizedDataAdmin(admin.ModelAdmin):
     date_hierarchy = 'created_at'
     list_filter = ['source', ]
-    raw_id_fields = ('raw', 'tasks',)
+    # raw_id_fields = ('raw', 'tasks',)
+    raw_id_fields = ('raw', )
 
 
 class ChangeSetSubmittedByFilter(SimpleListFilter):
@@ -109,45 +112,45 @@ class TaskNameFilter(admin.SimpleListFilter):
         return queryset
 
 
-class CeleryTaskChangeList(ChangeList):
-    def get_ordering(self, request, queryset):
-        return ['-timestamp']
+# class CeleryTaskChangeList(ChangeList):
+#     def get_ordering(self, request, queryset):
+#         return ['-timestamp']
 
 
-class CeleryTaskAdmin(admin.ModelAdmin):
-    list_display = ('timestamp', 'name', 'status', 'provider', 'app_label', 'started_by')
-    actions = ['retry_tasks']
-    list_filter = ['status', TaskNameFilter, AppLabelFilter, 'started_by']
-    list_select_related = ('provider', 'started_by')
-    fields = (
-        ('app_label', 'app_version'),
-        ('started_by', 'provider'),
-        ('uuid', 'name'),
-        ('args', 'kwargs'),
-        'timestamp',
-        'status',
-        'traceback',
-    )
-    readonly_fields = ('name', 'uuid', 'args', 'kwargs', 'status', 'app_version', 'app_label', 'timestamp', 'status', 'traceback', 'started_by', 'provider')
+# class CeleryTaskAdmin(admin.ModelAdmin):
+#     list_display = ('timestamp', 'name', 'status', 'provider', 'app_label', 'started_by')
+#     actions = ['retry_tasks']
+#     list_filter = ['status', TaskNameFilter, AppLabelFilter, 'started_by']
+#     list_select_related = ('provider', 'started_by')
+#     fields = (
+#         ('app_label', 'app_version'),
+#         ('started_by', 'provider'),
+#         ('uuid', 'name'),
+#         ('args', 'kwargs'),
+#         'timestamp',
+#         'status',
+#         'traceback',
+#     )
+#     readonly_fields = ('name', 'uuid', 'args', 'kwargs', 'status', 'app_version', 'app_label', 'timestamp', 'status', 'traceback', 'started_by', 'provider')
 
-    def traceback(self, task):
-        return apps.get_model('djcelery', 'taskmeta').objects.filter(task_id=task.uuid).first().traceback
+#     def traceback(self, task):
+#         return apps.get_model('djcelery', 'taskmeta').objects.filter(task_id=task.uuid).first().traceback
 
-    def get_changelist(self, request, **kwargs):
-        return CeleryTaskChangeList
+#     def get_changelist(self, request, **kwargs):
+#         return CeleryTaskChangeList
 
-    def retry_tasks(self, request, queryset):
-        for task in queryset:
-            task_id = str(task.uuid)
-            parts = task.name.rpartition('.')
-            Task = getattr(importlib.import_module(parts[0]), parts[2])
-            if task.app_label:
-                args = (task.started_by.id, task.app_label) + ast.literal_eval(task.args)
-            else:
-                args = (task.started_by.id,) + ast.literal_eval(task.args)
-            kwargs = ast.literal_eval(task.kwargs)
-            Task().apply_async(args, kwargs, task_id=task_id)
-    retry_tasks.short_description = 'Retry tasks'
+#     def retry_tasks(self, request, queryset):
+#         for task in queryset:
+#             task_id = str(task.uuid)
+#             parts = task.name.rpartition('.')
+#             Task = getattr(importlib.import_module(parts[0]), parts[2])
+#             if task.app_label:
+#                 args = (task.started_by.id, task.app_label) + ast.literal_eval(task.args)
+#             else:
+#                 args = (task.started_by.id,) + ast.literal_eval(task.args)
+#             kwargs = ast.literal_eval(task.kwargs)
+#             Task().apply_async(args, kwargs, task_id=task_id)
+#     retry_tasks.short_description = 'Retry tasks'
 
 
 class RawDatumAdmin(admin.ModelAdmin):
@@ -407,7 +410,6 @@ class SourceAdmin(admin.ModelAdmin):
 admin.site.unregister(AccessToken)
 admin.site.register(AccessToken, AccessTokenAdmin)
 
-admin.site.register(CeleryTask, CeleryTaskAdmin)
 admin.site.register(ChangeSet, ChangeSetAdmin)
 admin.site.register(HarvestLog, HarvestLogAdmin)
 admin.site.register(NormalizedData, NormalizedDataAdmin)

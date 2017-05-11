@@ -1,96 +1,65 @@
 import logging
 
-import raven
+from celery import Task
+from celery import states
+from celery.utils.time import maybe_timedelta
 
-from django.conf import settings
+from celery.backends.base import BaseDictBackend
+from django.utils import timezone
 
-from djcelery.backends.database import DatabaseBackend as DjCeleryDatabaseBackend
-
+from share.models import CeleryTaskResult
 
 logger = logging.getLogger(__name__)
 
-if hasattr(settings, 'RAVEN_CONFIG') and settings.RAVEN_CONFIG['dsn']:
-    client = raven.Client(settings.RAVEN_CONFIG['dsn'])
-else:
-    client = None
+
+class CeleryTask(Task):
+
+    def share_annotate(self, data):
+        if not hasattr(self.request, 'share_meta'):
+            self.request.share_meta = {}
+        self.request.share_meta.update(data)
 
 
-def match_by_module(task_path):
-    task_parts = task_path.split('.')
-    for i in range(2, len(task_parts) + 1):
-        task_subpath = '.'.join(task_parts[:i])
-        for v in settings.QUEUES.values():
-            if task_subpath in v['modules']:
-                return v['name']
-    return settings.QUEUES['DEFAULT']['name']
-
-
-class CeleryRouter(object):
-    def route_for_task(self, task, args=None, kwargs=None):
-        """ Handles routing of celery tasks.
-        See http://docs.celeryproject.org/en/latest/userguide/routing.html#routers
-        :param str task:    Of the form 'full.module.path.to.class.function'
-        :returns dict:      Tells celery into which queue to route this task.
-        """
-        return {
-            'queue': match_by_module(task)
-        }
-
-
-class DatabaseBackend(DjCeleryDatabaseBackend):
-
-    def _handle_unhandled_exception(self, exc):
-        try:
-            logger.exception(exc)
-            logger.critical('Caught an unhandled exception in the result backend, killing process')
-            if client:
-                client.capture_exceptions(sample_rate=0.5)
-        except Exception as e:
-            logger.exception()
-            logger.critical('Failed to log a previous failure')
-            if client:
-                client.capture_exceptions(sample_rate=0.5)
-        finally:
-            raise SystemExit(57)  # Something a bit less generic than 1 or -1
+# Based on https://github.com/celery/django-celery-results/commit/f88c677d66ba1eaf1b7cb1f3b8c910012990984f
+class CeleryDatabaseBackend(BaseDictBackend):
+    TaskModel = CeleryTaskResult
 
     def _store_result(self, task_id, result, status, traceback=None, request=None):
-        try:
-            return super()._store_result(task_id, result, status, traceback=traceback, request=result)
-        except Exception as e:
-            self._handle_unhandled_exception(e)
+        fields = {
+            'status': status,
+            'result': result,
+            'traceback': traceback,
+            'celery_meta': self.current_task_children(request)
+        }
 
-    def _save_group(self, group_id, result):
-        try:
-            return super()._save_group(group_id, result)
-        except Exception as e:
-            self._handle_unhandled_exception(e)
+        if request:
+            fields.update({
+                'task_name': request.task,
+                'correlation_id': request.correlation_id,
+                'meta': {
+                    'args': request.args,
+                    'kwargs': request.kwargs,
+                    'share_meta': getattr(request, 'share_meta', {}),
+                }
+            })
+
+        obj, created = self.TaskModel.objects.get_or_create(task_id=task_id, defaults=fields)
+
+        if not created:
+            for key, value in fields.items():
+                setattr(obj, key, value)
+            obj.save()
+
+        return obj
 
     def _get_task_meta_for(self, task_id):
-        try:
-            return super()._get_task_meta_for(task_id)
-        except Exception as e:
-            self._handle_unhandled_exception(e)
-
-    def _restore_group(self, group_id):
-        try:
-            return super()._restore_group(group_id)
-        except Exception as e:
-            self._handle_unhandled_exception(e)
-
-    def _delete_group(self, group_id):
-        try:
-            return super()._delete_group(group_id)
-        except Exception as e:
-            self._handle_unhandled_exception(e)
+        return self.TaskModel.objects.get(task_id=task_id).as_dict()
 
     def _forget(self, task_id):
         try:
-            return super()._forget(task_id)
-        except Exception as e:
-            self._handle_unhandled_exception(e)
+            self.TaskModel._default_manager.get(task_id=task_id).delete()
+        except self.TaskModel.DoesNotExist:
+            pass
 
     def cleanup(self):
-        try:
-            return super().cleanup()
-        except Exception as e:
-            self._handle_unhandled_exception(e)
+        self.TaskModel.objects.filter(date_modified=timezone.now() - maybe_timedelta(self.expires), state=states.SUCCESS).delete()

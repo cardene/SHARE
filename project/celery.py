@@ -1,5 +1,3 @@
-from __future__ import absolute_import
-
 import os
 
 import celery
@@ -21,9 +19,7 @@ class Celery(celery.Celery):
             register_logger_signal(client)
             register_signal(client)
 
-app = Celery('share')
+app = Celery('project')
 
-# Using a string here means the worker will not have to
-# pickle the object when using Windows.
-app.config_from_object('django.conf:settings')
-app.autodiscover_tasks(lambda: settings.INSTALLED_APPS)
+app.config_from_object('django.conf:settings', namespace='CELERY')
+app.autodiscover_tasks()

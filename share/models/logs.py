@@ -11,6 +11,7 @@ from model_utils import Choices
 from django.conf import settings
 from django.db import connection
 from django.db import models
+from django.db.models.expressions import RawSQL
 from django.utils import timezone
 from django.utils.translation import ugettext_lazy as _
 
@@ -251,11 +252,52 @@ class AbstractBaseLog(models.Model):
                 raise error
 
 
+class HarvestLogManager(AbstractLogManager):
+    IS_LOCKED = RawSQL('''
+        EXISTS(
+            SELECT * FROM pg_locks
+            WHERE locktype = 'advisory'
+            AND objid = share_sourceconfig.id
+            AND classid = 'share_sourceconfig'::REGCLASS::INTEGER
+            AND locktype = 'advisory'
+        )
+    ''', [])
+
+    LOCK_ACQUIRED = RawSQL("pg_try_advisory_xact_lock('share_sourceconfig'::REGCLASS::INTEGER, share_harvestlog.source_config_id)", [])
+
+    def lock_next_available(self, using='locking', tries=10):
+        for __ in range(tries):
+            log = self.get_queryset().annotate(
+                is_locked=self.IS_LOCKED,
+                lock_acquired=self.LOCK_ACQUIRED
+            ).select_related('source_config__source').filter(
+                is_locked=False,
+                source_config__disabled=False,
+                source_config__source__is_deleted=False,
+                status__in=[
+                    self.model.STATUS.created,
+                    self.model.STATUS.started,
+                    self.model.STATUS.rescheduled,
+                    self.model.STATUS.cancelled,
+                ]
+            ).using(using).first()
+
+            # Sometimes another process will beat us to the lock
+            # there doesn't appear to be a great way to avoid this
+            # while only locking one row, especially when limitted to
+            # Django's interface
+            if log and log.lock_acquired:
+                return log
+        return None
+
+
 class HarvestLog(AbstractBaseLog):
     # May want to look into using DateRange in the future
     end_date = models.DateField(db_index=True)
     start_date = models.DateField(db_index=True)
     harvester_version = models.PositiveIntegerField()
+
+    objects = HarvestLogManager()
 
     class Meta:
         unique_together = ('source_config', 'start_date', 'end_date', 'harvester_version', 'source_config_version', )

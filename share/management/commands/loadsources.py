@@ -4,8 +4,8 @@ import yaml
 from stevedore import extension
 
 from celery.schedules import crontab
-from djcelery.models import PeriodicTask
-from djcelery.models import CrontabSchedule
+# from djcelery.models import PeriodicTask
+# from djcelery.models import CrontabSchedule
 
 from django.apps import apps
 from django.core.files import File
@@ -116,19 +116,20 @@ class Command(BaseCommand):
             )
 
     def schedule_harvest_task(self, label, disabled):
-        task_name = '{} harvester task'.format(label)
-        tab = CrontabSchedule.from_schedule(crontab(minute=0, hour=0))
-        tab.save()
-        PeriodicTask.objects.update_or_create(
-            name=task_name,
-            defaults={
-                'enabled': not disabled,
-                'task': 'share.tasks.HarvesterTask',
-                'description': 'Harvesting',
-                'args': json.dumps([1, label]),  # Note 1 should always be the system user
-                'crontab': tab,
-            }
-        )
+        return
+        # task_name = '{} harvester task'.format(label)
+        # tab = CrontabSchedule.from_schedule(crontab(minute=0, hour=0))
+        # tab.save()
+        # PeriodicTask.objects.update_or_create(
+        #     name=task_name,
+        #     defaults={
+        #         'enabled': not disabled,
+        #         'task': 'share.tasks.HarvesterTask',
+        #         'description': 'Harvesting',
+        #         'args': json.dumps([1, label]),  # Note 1 should always be the system user
+        #         'crontab': tab,
+        #     }
+        # )
 
     def process_defaults(self, model, defaults):
         ret = {}
