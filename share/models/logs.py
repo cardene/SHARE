@@ -290,6 +290,10 @@ class HarvestLogManager(AbstractLogManager):
                 return log
         return None
 
+    def create_new_logs(self):
+        self.model.raw('''
+        ''')
+
 
 class HarvestLog(AbstractBaseLog):
     # May want to look into using DateRange in the future

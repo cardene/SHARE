@@ -72,7 +72,16 @@ def disambiguate(self, normalized_id):
 
 
 @celery.shared_task(bind=True, base=CeleryTask)
-def harvest(self, ingest=True, exhaust=True):
+def harvest(self, ingest=True, exhaust=True, superfluous=False):
+    """
+
+    Args:
+        ingest (bool, optional): Whether or not to start the full ingest process for harvested data. Defaults to True.
+        exhaust (bool, optional): Whether or not to start another harvest task if one is found. Defaults to True.
+            Used to prevent a backlog of harvests. If we have a valid job, spin off another task to eat through
+            the rest of the queue.
+        superfluous (bool, optional): Re-ingest Rawdata that we've already collected. Defaults to False.
+    """
     with transaction.atomic(using='locking'):
         log = HarvestLog.objects.lock_next_available()
 
@@ -91,12 +100,12 @@ def harvest(self, ingest=True, exhaust=True):
 
         # No need to lock, we've already acquired it here
         for datum in log.source_config.get_harvester().harvest_from_log(log, lock=False):
-            if ingest and datum.created:
+            if ingest and (datum.created or superfluous):
                 transform.apply_async((datum.id, ))
 
 
 @celery.shared_task(bind=True)
-def schedule_harvest_task(self):
+def schedule_harvests(self):
     with transaction.atomic():
         HarvestLog.objects.bulk_create([
             HarvestLog(
