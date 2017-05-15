@@ -311,9 +311,8 @@ CELERY_RETRY_BACKOFF_BASE = int(os.environ.get('CELERY_RETRY_BACKOFF_BASE', 2 if
 
 # Celery Settings
 
-CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'amqp://'),
-
 CELERY_TIMEZONE = 'UTC'
+CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'amqp://'),
 
 CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
 CELERY_BEAT_SCHEDULE = {
@@ -332,8 +331,14 @@ CELERY_BEAT_SCHEDULE = {
 CELERY_RESULT_EXPIRES = 60 * 60 * 24 * 3  # 4 days
 CELERY_RESULT_BACKEND = 'share.celery:CeleryDatabaseBackend'
 
+# Don't reject tasks that were present on a worker when it was killed
+CELERY_TASK_REJECT_ON_WORKER_LOST = False
+
+# Don't remove tasks from RabbitMQ until they are finished
 CELERY_TASK_ACKS_LATE = True
+
 CELERY_TASK_TRACK_STARTED = True
+
 CELERY_TASK_DEFAULT_QUEUE = 'share_default'
 CELERY_TASK_DEFAULT_EXCHANGE = 'share_default'
 CELERY_TASK_DEFAULT_ROUTING_KEY = 'share_default'
@@ -344,6 +349,8 @@ CELERY_TASK_ROUTES = {
     'share.tasks.transform': {'priority': 20, 'queue': 'transform'},
     'share.tasks.disambiguate': {'priority': 20, 'queue': 'disambiguate'},
 }
+
+# CELERY_TASK_QUEUES = {v['queue']: {} for v in CELERY_TASK_ROUTES.values()}
 
 
 # Logging

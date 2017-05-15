@@ -121,18 +121,19 @@ class RobotOauthTokenMigration(AbstractRobotMigration):
 class RobotScheduleMigration(AbstractRobotMigration):
 
     def __call__(self, apps, schema_editor):
-        from djcelery.models import PeriodicTask
-        from djcelery.models import CrontabSchedule
-        tab = CrontabSchedule.from_schedule(self.config.schedule)
-        tab.save()
-        PeriodicTask(
-            enabled=not self.config.disabled,
-            name=self.config.task_name,
-            task=self.config.task,
-            description=self.config.description,
-            args=json.dumps([1, self.config.label]),  # Note 1 should always be the system user
-            crontab=tab,
-        ).save()
+        pass
+        # from djcelery.models import PeriodicTask
+        # from djcelery.models import CrontabSchedule
+        # tab = CrontabSchedule.from_schedule(self.config.schedule)
+        # tab.save()
+        # PeriodicTask(
+        #     enabled=not self.config.disabled,
+        #     name=self.config.task_name,
+        #     task=self.config.task,
+        #     description=self.config.description,
+        #     args=json.dumps([1, self.config.label]),  # Note 1 should always be the system user
+        #     crontab=tab,
+        # ).save()
 
     def reverse(self, apps, schema_editor):
         PeriodicTask = apps.get_model('djcelery', 'PeriodicTask')

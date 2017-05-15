@@ -20,4 +20,4 @@ class CeleryTaskResultAdmin(admin.ModelAdmin):
         return obj.meta['kwargs']
 
     def share_meta(self, obj):
-        return obj.meta['share_meta']
+        return obj.meta

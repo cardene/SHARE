@@ -3,8 +3,8 @@ import functools
 
 import raven
 
-from celery import Task
 from celery import states
+from celery.app.task import Context
 from celery.utils.time import maybe_timedelta
 from celery.backends.base import BaseDictBackend
 
@@ -28,23 +28,16 @@ def die_on_unhandled(func):
         try:
             return func(*args, **kwargs)
         except Exception as e:
-            logger.exception('Celery internal method %s failed', func)
             try:
-                if client:
-                    client.capture_exception()
-            except Exception as ee:
-                logger.exception('Could not log exception to Sentry')
-        finally:
-            raise SystemExit(57)  # Something a bit less generic than 1 or -1
+                logger.exception('Celery internal method %s failed', func)
+                try:
+                    if client:
+                        client.capture_exception()
+                except Exception as ee:
+                    logger.exception('Could not log exception to Sentry')
+            finally:
+                raise SystemExit(57)  # Something a bit less generic than 1 or -1
     return wrapped
-
-
-class CeleryTask(Task):
-
-    def share_annotate(self, data):
-        if not hasattr(self.request, 'share_meta'):
-            self.request.share_meta = {}
-        self.request.share_meta.update(data)
 
 
 # Based on https://github.com/celery/django-celery-results/commit/f88c677d66ba1eaf1b7cb1f3b8c910012990984f
@@ -52,33 +45,46 @@ class CeleryDatabaseBackend(BaseDictBackend):
     TaskModel = CeleryTaskResult
 
     @die_on_unhandled
-    def _store_result(self, task_id, result, status, traceback=None, request=None):
+    def _store_result(self, task_id, result, status, traceback=None, request=None, **kwargs):
         fields = {
-            'status': status,
+            'meta': {},
             'result': result,
             'traceback': traceback,
-            'celery_meta': self.current_task_children(request)
+            'celery_meta': self.current_task_children(request),
         }
 
-        if request:
+        if status is not None:
+            fields['status'] = status
+
+        if isinstance(result, dict):
+            fields['meta'].update(result)
+
+        if isinstance(request, Context):
             fields.update({
                 'task_name': request.task,
                 'correlation_id': request.correlation_id,
-                'meta': {
-                    'args': request.args,
-                    'kwargs': request.kwargs,
-                    'share_meta': getattr(request, 'share_meta', {}),
-                }
+            })
+
+            fields['meta'].update({
+                'args': request.args,
+                'kwargs': request.kwargs,
             })
 
         obj, created = self.TaskModel.objects.get_or_create(task_id=task_id, defaults=fields)
 
         if not created:
             for key, value in fields.items():
-                setattr(obj, key, value)
+                if isinstance(value, dict) and getattr(obj, key, None):
+                    getattr(obj, key).update(value)
+                else:
+                    setattr(obj, key, value)
             obj.save()
 
         return obj
+
+    @die_on_unhandled
+    def cleanup(self):
+        self.TaskModel.objects.filter(date_modified=timezone.now() - maybe_timedelta(self.expires), status=states.SUCCESS).delete()
 
     @die_on_unhandled
     def _get_task_meta_for(self, task_id):
@@ -90,7 +96,3 @@ class CeleryDatabaseBackend(BaseDictBackend):
             self.TaskModel._default_manager.get(task_id=task_id).delete()
         except self.TaskModel.DoesNotExist:
             pass
-
-    @die_on_unhandled
-    def cleanup(self):
-        self.TaskModel.objects.filter(date_modified=timezone.now() - maybe_timedelta(self.expires), state=states.SUCCESS).delete()

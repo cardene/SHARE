@@ -17,7 +17,6 @@ from share.models import NormalizedData
 from share.models import RawDatum
 from share.models import Source
 from share.models import SourceConfig
-from share.celery import CeleryTask
 
 
 logger = logging.getLogger(__name__)
@@ -71,7 +70,7 @@ def disambiguate(self, normalized_id):
             cs.accept()
 
 
-@celery.shared_task(bind=True, base=CeleryTask)
+@celery.shared_task(bind=True)
 def harvest(self, ingest=True, exhaust=True, superfluous=False):
     """
 
@@ -86,13 +85,15 @@ def harvest(self, ingest=True, exhaust=True, superfluous=False):
         log = HarvestLog.objects.lock_next_available()
 
         if log is None:
+            self.update_state(meta={'log_id': None})
             return logger.warning('No HarvestLogs are currently available')
         elif exhaust:
             logger.debug('Spawning another harvest task')
-            harvest.apply_async((), {'ingest': ingest, 'exhaust': exhaust})
+            res = harvest.apply_async((), {'ingest': ingest, 'exhaust': exhaust})
+            logger.info('Spawned %r', res)
 
         # Additional attributes for the celery backend
-        self.share_annotate({
+        self.update_state(meta={
             'log_id': log.id,
             'source': log.source_config.source.long_title,
             'source_config': log.source_config.label,

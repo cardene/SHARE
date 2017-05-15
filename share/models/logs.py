@@ -271,9 +271,10 @@ class HarvestLogManager(AbstractLogManager):
         for __ in range(tries):
             log = self.get_queryset().annotate(
                 is_locked=self.IS_LOCKED,
-                lock_acquired=self.LOCK_ACQUIRED
+                lock_acquired=self.LOCK_ACQUIRED,
+                # allowed_start_date=F('end_date') + F('source_config__harvest_interval'),
             ).select_related('source_config__source').filter(
-                F('end_date') + F('source_config__harvest_interval') < TransactionNow(),
+                # allowed_start_date__lte=TransactionNow(),
                 is_locked=False,
                 source_config__disabled=False,
                 source_config__source__is_deleted=False,
