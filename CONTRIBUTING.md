@@ -31,8 +31,15 @@ Here are some excellent pull requests, for reference.
 * https://github.com/CenterForOpenScience/SHARE/pull/658
 * https://github.com/CenterForOpenScience/SHARE/pull/642
 
+### Code
 
-## REPORTING ISSUES
+#### Docstrings
+
+Python docstrings should follow the [Google docstring style guide](http://sphinxcontrib-napoleon.readthedocs.io/en/latest/example_google.html).
+
+To easily distinguish them, docstrings should use triple double-quotes, `"""`, and large strings should use triple single-quotes, `'''`
+
+## Reporting Issues
 
 If you find a bug in osf.io or would like to propose a new feature, please file an issue report in CenterForOpenScience/osf.io. Below we have some information on how to best report the issue, but if you’re short on time or new to this, don’t worry! We really want to know about the problem, so go ahead and report it. If you do this a lot, or you just want to know how to make it easier for us to find and fix the problem, keep reading.
 
