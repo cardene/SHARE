@@ -74,6 +74,21 @@ Feature: Harvester Scheduling
       | fortnightly |
       | yearly      |
 
+  Scenario Outline: Scheduling idempotency
+    Given a source config, neat.o, that harvests <INTERVAL>
+    When harvests are scheduled on 2017-01-02
+    And harvests are scheduled on 2017-01-02
+    And harvests are scheduled on 2017-01-01
+    And harvests are scheduled on 2017-01-01
+    Then neat.o will have 1 harvest logs
+
+    Examples:
+      | INTERVAL    |
+      | daily       |
+      | weekly      |
+      | fortnightly |
+      | yearly      |
+
   # Scenario: Scheduling harvests with conflicts
 
   # Scenario: Scheduling updated harvests
