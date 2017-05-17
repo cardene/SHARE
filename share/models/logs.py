@@ -122,6 +122,13 @@ class AbstractBaseLog(models.Model):
         (9, 'cancelled', _('Cancelled')),
     )
 
+    READY_STATUSES = (
+        STATUS.created,
+        STATUS.started,
+        STATUS.rescheduled,
+        STATUS.cancelled,
+    )
+
     class SkipReasons(enum.Enum):
         duplicated = 'Previously Succeeded'
         encompassed = 'Encompassing task succeeded',
@@ -254,45 +261,110 @@ class AbstractBaseLog(models.Model):
                 raise error
 
 
-class HarvestLogManager(AbstractLogManager):
-    IS_LOCKED = RawSQL('''
+class LockQuerySet(models.QuerySet):
+    LOCK_ACQUIRED = '''
+        pg_try_advisory_xact_lock('%'::REGCLASS::INTEGER, {0.related_model._meta.db_table}.{0.column})
+    '''
+
+    IS_LOCKED = '''
         EXISTS(
             SELECT * FROM pg_locks
             WHERE locktype = 'advisory'
-            AND objid = share_sourceconfig.id
-            AND classid = 'share_sourceconfig'::REGCLASS::INTEGER
+            AND objid = {0._meta.db_table}.{0._meta.pk.column}
+            AND classid = '%s'::REGCLASS::INTEGER
             AND locktype = 'advisory'
         )
-    ''', [])
+    '''
 
-    LOCK_ACQUIRED = RawSQL("pg_try_advisory_xact_lock('share_sourceconfig'::REGCLASS::INTEGER, share_harvestlog.source_config_id)", [])
+    def unlocked(self, relation):
+        """Filter out any rows that have an advisory lock on the related field.
 
-    def lock_next_available(self, using='locking', tries=10):
-        for __ in range(tries):
-            log = self.get_queryset().annotate(
-                is_locked=self.IS_LOCKED,
-                lock_acquired=self.LOCK_ACQUIRED,
-                # allowed_start_date=F('end_date') + F('source_config__harvest_interval'),
-            ).select_related('source_config__source').filter(
-                # allowed_start_date__lte=TransactionNow(),
-                is_locked=False,
-                source_config__disabled=False,
-                source_config__source__is_deleted=False,
-                status__in=[
-                    self.model.STATUS.created,
-                    self.model.STATUS.started,
-                    self.model.STATUS.rescheduled,
-                    self.model.STATUS.cancelled,
-                ]
-            ).using(using).first()
+        Args:
+            relation: (str): The related object to check for an advisory lock on.
 
-            # Sometimes another process will beat us to the lock
-            # there doesn't appear to be a great way to avoid this
-            # while only locking one row, especially when limitted to
-            # Django's interface
-            if log and log.lock_acquired:
-                return log
-        return None
+        """
+        field = self.model._meta.get_field(relation)
+
+        if not field.is_relation:
+            raise ValueError('Field "{}" of "{}" is not a relation'.format(relation, self.model))
+
+        return self.select_related(relation).annotate(
+            is_locked=RawSQL(self.IS_LOCKED.format(field.related_model), [field.related_model._meta.db_table])
+        ).exclude(is_locked=True)
+
+    def acquire_lock(self, relation):
+        """Attempts to acquire an advisory lock for ALL rows returned by this queryset.
+
+        Note:
+            Locks not take effect until the queryset is evaluated.
+            It will, however, affect everything if you use .all().
+
+        Args:
+            relation: (str): The related object to attempt to acquire an advisory lock on.
+
+        """
+        field = self.model._meta.get_field(relation)
+
+        if not field.is_relation:
+            raise ValueError('Field "{}" of "{}" is not a relation'.format(relation, self.model))
+
+        return self.select_related(relation).annotate(
+            lock_acquired=RawSQL(self.LOCK_ACQUIRED.format(field), [field.related_model._meta.db_table])
+        )
+
+
+class HarvestLogManager(AbstractLogManager):
+    def get_queryset(self):
+        return LockQuerySet(self.model, using=self._db)
+    # IS_LOCKED = RawSQL('''
+    #     EXISTS(
+    #         SELECT * FROM pg_locks
+    #         WHERE locktype = 'advisory'
+    #         AND objid = share_sourceconfig.id
+    #         AND classid = 'share_sourceconfig'::REGCLASS::INTEGER
+    #         AND locktype = 'advisory'
+    #     )
+    # ''', [])
+
+    # LOCK_ACQUIRED = RawSQL("pg_try_advisory_xact_lock('share_sourceconfig'::REGCLASS::INTEGER, share_harvestlog.source_config_id)", [])
+
+    # def lock_id(self, pk, using='locking'):
+    #     log = self.get_queryset().using(
+    #         using
+    #     ).select_related('source_config').annotate(
+    #         lock_acquired=self.LOCK_ACQUIRED,
+    #     ).get(id=pk)
+
+    #     log.source_config.acquire_lock()
+
+    #     return log
+
+    # def lock_next(self, using='locking', tries=10):
+    #     for __ in range(tries):
+    #         log = self.get_queryset().annotate(
+    #             is_locked=self.IS_LOCKED,
+    #             lock_acquired=self.LOCK_ACQUIRED,
+    #             # allowed_start_date=F('end_date') + F('source_config__harvest_interval'),
+    #         ).select_related('source_config__source').filter(
+    #             # allowed_start_date__lte=TransactionNow(),
+    #             is_locked=False,
+    #             source_config__disabled=False,
+    #             source_config__source__is_deleted=False,
+    #             status__in=[
+    #                 self.model.STATUS.created,
+    #                 self.model.STATUS.started,
+    #                 self.model.STATUS.rescheduled,
+    #                 self.model.STATUS.cancelled,
+    #             ]
+    #         ).using(using).first()
+
+    #         # Sometimes another process will beat us to the lock
+    #         # there doesn't appear to be a great way to avoid this
+    #         # while only locking one row, especially when limitted to
+    #         # Django's interface
+    #         if log and log.lock_acquired:
+    #             return log
+    #     return None
 
 
 class HarvestLog(AbstractBaseLog):
