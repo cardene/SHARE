@@ -1,13 +1,14 @@
 import logging
-import datetime
 
 import celery
+import pendulum
 import requests
 
 from django.apps import apps
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
+from django.db import models
 from django.urls import reverse
 
 from share.change import ChangeGraph
@@ -80,6 +81,7 @@ def harvest(self, ingest=True, exhaust=True, superfluous=False):
             Used to prevent a backlog of harvests. If we have a valid job, spin off another task to eat through
             the rest of the queue.
         superfluous (bool, optional): Re-ingest Rawdata that we've already collected. Defaults to False.
+
     """
     with transaction.atomic(using='locking'):
         log = HarvestLog.objects.lock_next_available()
@@ -106,16 +108,45 @@ def harvest(self, ingest=True, exhaust=True, superfluous=False):
 
 
 @celery.shared_task(bind=True)
-def schedule_harvests(self):
+def schedule_harvests(self, *source_config_ids, cutoff=None):
+    """
+
+    Args:
+        *source_config_ids (int): PKs of the source configs to schedule harvests for.
+            If omitted, all non-disabled and non-deleted source configs will be scheduled
+        cutoff (optional, datetime): The time to schedule harvests up to. Defaults to today.
+
+    """
+    if cutoff is None:
+        cutoff = pendulum.utcnow().date()
+
+    if source_config_ids:
+        qs = SourceConfig.objects.filter(id__in=source_config_ids)
+    else:
+        qs = SourceConfig.objects.exclude(disabled=True).exclude(source__is_deleted=True)
+
+    # TODO This could be much more efficient
     with transaction.atomic():
-        HarvestLog.objects.bulk_create([
-            HarvestLog(
-                end_date=datetime.date.today(),
-                harvester_version=source_config.harvester.version,
-                source_config=source_config,
-                source_config_version=source_config.version,
-                start_date=datetime.date.today() - datetime.timedelta(days=1),
-            )
-            for source_config in
-            SourceConfig.objects.filter(disabled=False, source__is_deleted=False)
-        ])
+        logs = []
+
+        for source_config in qs.select_related('harvester').annotate(latest=models.Max('harvest_logs__end_date')):
+            if not source_config.latest and source_config.backharvesting and source_config.earliest_date:
+                end_date = source_config.earliest_date
+            elif source_config.latest is None:
+                end_date = cutoff - source_config.harvest_interval
+            else:
+                end_date = source_config.latest
+
+            log_kwargs = {
+                'source_config': source_config,
+                'source_config_version': source_config.version,
+                'harvester_version': source_config.get_harvester().VERSION,
+            }
+
+            while end_date + source_config.harvest_interval <= cutoff:
+                start_date = end_date
+                end_date = end_date + source_config.harvest_interval
+
+                logs.append(HarvestLog(start_date=start_date, end_date=end_date, **log_kwargs))
+
+        HarvestLog.objects.bulk_create(logs)

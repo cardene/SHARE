@@ -110,6 +110,7 @@ class SourceConfig(models.Model):
     harvester_kwargs = JSONField(null=True, blank=True)
     harvest_interval = models.DurationField(default='1 day')
     harvest_after = models.TimeField(default='02:00')
+    backharvesting = models.BooleanField(default=False)
 
     # Allow null for push sources
     # TODO put pushed data through a transformer, add a JSONLDTransformer or something for backward compatibility

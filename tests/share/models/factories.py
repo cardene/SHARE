@@ -15,8 +15,8 @@ class CeleryProviderTaskFactory(DjangoModelFactory):
     uuid = str(uuid.uuid4())
     status = 1
 
-    class Meta:
-        model = models.CeleryProviderTask
+    # class Meta:
+    #     model = models.CeleryProviderTask
 
 
 class ShareUserFactory(DjangoModelFactory):

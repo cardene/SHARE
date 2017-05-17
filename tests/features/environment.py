@@ -11,6 +11,7 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'project.settings')
 django.setup()
 
 
+# -D RESETDB=1
 def before_all(context):
     setup_test_environment()
     context.db_cfg = setup_databases(
@@ -25,6 +26,7 @@ def before_scenario(context, scenario):
     context.test_case._pre_setup()
 
 
+# -D DEBUGGER=1
 def after_step(context, step):
     if context.config.userdata.getbool('DEBUGGER') and step.status == 'failed':
         # -- ENTER DEBUGGER: Zoom in on failure location.
@@ -36,6 +38,7 @@ def after_scenario(context, scenario):
     context.test_case._post_teardown()
 
 
+# -D RESETDB=1
 def after_all(context):
     if context.config.userdata.getbool('RESETDB'):
         teardown_databases(context.db_cfg, verbosity=False)

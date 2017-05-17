@@ -294,54 +294,6 @@ class HarvestLogManager(AbstractLogManager):
                 return log
         return None
 
-    def create_new_logs(self, *source_configs):
-        return self.raw('''
-            WITH RECURSIVE RANGES AS (
-                SELECT
-                    source_config_id
-                    , share_sourceconfig.harvest_interval
-                    , MAX(end_date) AS start_date
-                    , (MAX(end_date) + share_sourceconfig.harvest_interval)::DATE AS end_date
-              FROM share_harvestlog
-                JOIN share_sourceconfig ON share_harvestlog.source_config_id = share_sourceconfig.id
-              GROUP BY source_config_id, share_sourceconfig.harvest_interval
-              HAVING MAX(end_date) + share_sourceconfig.harvest_interval < now()
-            UNION ALL
-              SELECT
-                source_config_id
-                , harvest_interval
-                , end_date AS start_date
-                , (end_date + harvest_interval)::DATE AS end_date
-              FROM RANGES WHERE end_date + harvest_interval < now()
-            ) INSERT INTO share_harvestlog (
-                status
-                , context
-                , date_created
-                , date_modified
-                , source_config_id
-                , share_version
-                , source_config_version
-                , start_date
-                , end_date
-                , harvester_version
-                , completions
-            ) SELECT
-                %s
-                , ''
-                , NOW()
-                , NOW()
-                , source_config_id
-                , %s
-                , share_sourceconfig.version
-                , start_date
-                , end_date
-                , %s
-                , %s
-            FROM RANGES
-                JOIN share_sourceconfig ON share_sourceconfig.id = source_config_id
-            RETURNING *
-        ''', [self.model.STATUS.created, get_share_version(), 1, 0])
-
 
 class HarvestLog(AbstractBaseLog):
     # May want to look into using DateRange in the future

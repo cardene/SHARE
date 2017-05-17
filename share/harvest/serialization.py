@@ -1,5 +1,6 @@
 import json
 import logging
+import warnings
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ class EverythingSerializer(RawDatumSerializer):
         super().__init__(pretty=pretty)
         self.warned = False
         self.dict_serializer = DictSerializer(pretty=pretty)
-        logger.warning('%r is deprecated. Use a serializer meant for the data returned', self)
+        warnings.warn('{!r} is deprecated. Use a serializer meant for the data returned'.format(self), DeprecationWarning)
 
     def serialize(self, data, pretty=False) -> str:
         if isinstance(data, str):
@@ -34,11 +35,11 @@ class EverythingSerializer(RawDatumSerializer):
         if isinstance(data, bytes):
             if not self.warned:
                 self.warned = True
-                logger.warning(
-                    '%r.encode_data got a bytes instance. '
+                warnings.warn(
+                    '{!r}.encode_data got a bytes instance. '
                     'do_harvest should be returning str types as only the harvester will know how to properly encode the bytes '
-                    'defaulting to decoding as utf-8',
-                    self,
+                    'defaulting to decoding as utf-8'.format(self),
+                    DeprecationWarning
                 )
             return data.decode('utf-8')
         if isinstance(data, dict):
