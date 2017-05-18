@@ -123,7 +123,7 @@ def harvest(self, log_id=None, source_id=None, source_config_id=None, ignore_dis
         if log is None and log_id is not None:
             # If an id was given to us, we should have gotten a log
             log = HarvestLog.objects.get(id=log_id)  # Force the failure
-            raise Exception('Failed to load {} but then found {!r}.'.format(log_id, log))
+            raise Exception('Failed to load {} but then found {!r}.'.format(log_id, log))  # Should never be reached
 
         if self.request.id:
             # Additional attributes for the celery backend

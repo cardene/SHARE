@@ -9,9 +9,7 @@ import pendulum
 import requests
 
 from django.utils import timezone
-from django.db import transaction
 
-from share.harvest.exceptions import HarvesterConcurrencyError
 from share.harvest.exceptions import HarvesterDisabledError
 from share.harvest.ratelimit import RateLimittedProxy
 from share.harvest.serialization import EverythingSerializer

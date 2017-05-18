@@ -15,8 +15,6 @@ import subprocess
 
 from django.utils.log import DEFAULT_LOGGING
 
-from kombu import Queue, Exchange
-
 from celery.schedules import crontab
 
 # Suppress select django deprecation messages
