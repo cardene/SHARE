@@ -37,7 +37,6 @@ __version__ = 'share 0.0.0'
 def command(func):
     def inner(argv):
         parsed = docopt(func.__doc__, version=__version__, argv=argv)
-        print('Initializing Django...')
         django.setup()
         return func(parsed, argv)
     inner.is_command = True
@@ -45,47 +44,106 @@ def command(func):
 
 
 @command
-def harvest(args, argv):
+def fetch(args, argv):
     """
-    Usage: share harvest <sourceconfig> [--limit=LIMIT] [--print | --out=DIR] [--days-back=DAYS] [--start=MM-DD-YYYY] [--end=MM-DD-YY] [--set-spec=SET]
+    Usage: share fetch <sourceconfig> [<date> | --start=YYYY-MM-DD --end=YYYY-MM-DD] [--limit=LIMIT] [--print | --out=DIR] [--set-spec=SET]
+
+    Fetch data to disk or stdout, using the specified SourceConfig.
 
     Options:
         -l, --limit=NUMBER      Limit the harvester to NUMBER of documents
         -p, --print             Print results to stdout rather than to a file
-        -o, --out=DIR           The directory to store the harvested data in. Defaults to ./<sourceconfig>
-        -d, --days-back=DAYS    Number of days back to harvest [default: 1]
-        -s, --start=YYYY-MM-DD  The start date for the harvester to begin, defaults to one day in the past
-        -e, --end=YYYY-MM-DD    The start date for the harvester to end, defaults to today
+        -o, --out=DIR           The directory to store the fetched data in. Defaults to ./fetched/<sourceconfig>
+        -s, --start=YYYY-MM-DD  The date at which to start fetching data.
+        -e, --end=YYYY-MM-DD    The date at which to stop fetching data.
+        -i, --ignore-disabled   Allow disabled SourceConfigs to run.
         --set-spec=SET          The OAI setSpec to limit harvesting to.
     """
     from share.models import SourceConfig
-    config = SourceConfig.objects.get(label=(args['<sourceconfig>']))
-    harvester = config.get_harvester()
 
-    if not args['--print']:
-        args['--out'] = args['--out'] or os.path.join(os.curdir, config.label)
-        os.makedirs(args['--out'], exist_ok=True)
+    try:
+        config = SourceConfig.objects.get(label=(args['<sourceconfig>']))
+    except SourceConfig.DoesNotExist:
+        print('SourceConfig "{}" not found.'.format(args['<sourceconfig>']))
+        return -1
 
-    start_date = pendulum.parse(args['--start']) if args.get('--start') else pendulum.utcnow() - timedelta(days=int(args['--days-back']))
-    end_date = pendulum.parse(args['--end']) if args.get('--end') else pendulum.utcnow()
+    harvester = config.get_harvester(pretty=True)
 
     kwargs = {k: v for k, v in {
         'limit': int(args['--limit']) if args.get('--limit') else None,
-        'set_spec': args.get('--set-spec') or None
+        'set_spec': args.get('--set-spec'),
+        'ignore_disabled': args.get('ignore_disabled'),
     }.items() if v is not None}
 
-    for doc_id, data in harvester.fetch_date_range(start_date, end_date, **kwargs):
-        decoded = data
-        if not isinstance(decoded, str):
-            decoded = data.decode()
+    if not args['<date>'] and not (args['--start'] and args['--end']):
+        gen = harvester.fetch(**kwargs)
+    elif args['<date>']:
+        gen = harvester.fetch_date(pendulum.parse(args['<date>']), **kwargs)
+    else:
+        gen = harvester.fetch_date_range(pendulum.parse(args['--start']), pendulum.parse(args['--end']), **kwargs)
+
+    if not args['--print']:
+        args['--out'] = args['--out'] or os.path.join(os.curdir, 'fetched', config.label)
+        os.makedirs(args['--out'], exist_ok=True)
+
+    for result in gen:
         if args['--print']:
-            print('Harvested data with identifier "{}"'.format(doc_id))
-            print(decoded)
+            print('Harvested data with identifier "{}"'.format(result.identifier))
+            print(result.datum)
             print('\n')
         else:
-            suffix = '.xml' if decoded.startswith('<') else '.json'
-            with open(os.path.join(args['--out'], re.sub(r'[:\\\/\?\*]', '', str(doc_id))) + suffix, 'w') as fobj:
-                fobj.write(decoded)
+            suffix = '.xml' if result.datum.startswith('<') else '.json'
+            with open(os.path.join(args['--out'], re.sub(r'[:\\\/\?\*]', '', str(result.identifier))) + suffix, 'w') as fobj:
+                fobj.write(result.datum)
+
+
+@command
+def harvest(args, argv):
+    """
+    Usage: share harvest <sourceconfig> [<date> | (--start=YYYY-MM-DD --end=YYYY-MM-DD)] [options]
+
+    Harvest data using the specified SourceConfig.
+
+    Options:
+        -l, --limit=NUMBER      Limit the harvester to NUMBER of documents
+        -s, --start=YYYY-MM-DD  The date at which to start fetching data.
+        -e, --end=YYYY-MM-DD    The date at which to stop fetching data.
+        -i, --ignore-disabled   Allow disabled SourceConfigs to run.
+        -f, --force             Force this harvest to run.
+        -a, --async             Add this harvest to the queue.
+        -s, --superfluous       Re-harvest even if this harvest has already been run.
+        --set-spec=SET          The OAI setSpec to limit harvesting to.
+    """
+    from share import tasks
+    from share.models import SourceConfig
+    from share.harvest.scheduler import HarvestScheduler
+
+    config = SourceConfig.objects.get(label=(args['<sourceconfig>']))
+    scheduler = HarvestScheduler(config)
+
+    if not (args['<date>'] or args['--start'] or args['--end']):
+        logs = [scheduler.today()]
+    elif args['<date>']:
+        logs = [scheduler.date(pendulum.parse(args['<date>']))]
+    else:
+        logs = scheduler.range(
+            pendulum.parse(args['--start']),
+            pendulum.parse(args['--end'])
+        )
+
+    kwargs = {k: v for k, v in {
+        'limit': int(args['--limit']) if args.get('--limit') else None,
+        'set_spec': args.get('--set-spec'),
+        'ignore_disabled': args.get('ignore_disabled'),
+        'force': args.get('force'),
+        'superfluous': args.get('superfluous'),
+    }.items() if v is not None}
+
+    for log in logs:
+        if args['--async']:
+            tasks.harvest.apply_async((), {'log_id': log.id, **kwargs})
+        else:
+            tasks.harvest(**{'log_id': log.id, **kwargs})
 
 
 @command
