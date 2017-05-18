@@ -1,3 +1,4 @@
+import re
 import signal
 import enum
 import itertools
@@ -9,10 +10,9 @@ from contextlib import contextmanager
 from model_utils import Choices
 
 from django.conf import settings
-from django.contrib.postgres.functions import TransactionNow
 from django.db import connection
+from django.db import connections
 from django.db import models
-from django.db.models import F
 from django.db.models.expressions import RawSQL
 from django.utils import timezone
 from django.utils.translation import ugettext_lazy as _
@@ -261,20 +261,20 @@ class AbstractBaseLog(models.Model):
                 raise error
 
 
-class LockQuerySet(models.QuerySet):
-    LOCK_ACQUIRED = '''
-        pg_try_advisory_xact_lock('%'::REGCLASS::INTEGER, {0.related_model._meta.db_table}.{0.column})
-    '''
+class LockableQuerySet(models.QuerySet):
+    LOCK_ACQUIRED = re.sub('\s\s+', ' ', '''
+        pg_try_advisory_lock(%s::REGCLASS::INTEGER, "{0.model._meta.db_table}"."{0.column}")
+    ''').strip()
 
-    IS_LOCKED = '''
+    IS_LOCKED = re.sub('\s\s+', ' ', '''
         EXISTS(
             SELECT * FROM pg_locks
             WHERE locktype = 'advisory'
             AND objid = {0._meta.db_table}.{0._meta.pk.column}
-            AND classid = '%s'::REGCLASS::INTEGER
+            AND classid = %s::REGCLASS::INTEGER
             AND locktype = 'advisory'
         )
-    '''
+    ''').strip()
 
     def unlocked(self, relation):
         """Filter out any rows that have an advisory lock on the related field.
@@ -291,6 +291,28 @@ class LockQuerySet(models.QuerySet):
         return self.select_related(relation).annotate(
             is_locked=RawSQL(self.IS_LOCKED.format(field.related_model), [field.related_model._meta.db_table])
         ).exclude(is_locked=True)
+
+    @contextmanager
+    def lock_first(self, relation):
+        item = None
+        field = self.model._meta.get_field(relation)
+
+        if not field.is_relation:
+            raise ValueError('Field "{}" of "{}" is not a relation'.format(relation, self.model))
+
+        try:
+            item = type(self)(self.model, using=self.db).select_related(relation).filter(
+                id__in=self.values('id')[:1]
+            ).annotate(
+                lock_acquired=RawSQL(self.LOCK_ACQUIRED.format(field), [field.related_model._meta.db_table])
+            ).first()
+
+            yield item
+
+        finally:
+            if item and item.lock_acquired:
+                with connections[self.db].cursor() as cursor:
+                    cursor.execute('SELECT pg_advisory_unlock(%s::REGCLASS::INTEGER, %s)', [field.related_model._meta.db_table, item.id])
 
     def acquire_lock(self, relation):
         """Attempts to acquire an advisory lock for ALL rows returned by this queryset.
@@ -315,56 +337,7 @@ class LockQuerySet(models.QuerySet):
 
 class HarvestLogManager(AbstractLogManager):
     def get_queryset(self):
-        return LockQuerySet(self.model, using=self._db)
-    # IS_LOCKED = RawSQL('''
-    #     EXISTS(
-    #         SELECT * FROM pg_locks
-    #         WHERE locktype = 'advisory'
-    #         AND objid = share_sourceconfig.id
-    #         AND classid = 'share_sourceconfig'::REGCLASS::INTEGER
-    #         AND locktype = 'advisory'
-    #     )
-    # ''', [])
-
-    # LOCK_ACQUIRED = RawSQL("pg_try_advisory_xact_lock('share_sourceconfig'::REGCLASS::INTEGER, share_harvestlog.source_config_id)", [])
-
-    # def lock_id(self, pk, using='locking'):
-    #     log = self.get_queryset().using(
-    #         using
-    #     ).select_related('source_config').annotate(
-    #         lock_acquired=self.LOCK_ACQUIRED,
-    #     ).get(id=pk)
-
-    #     log.source_config.acquire_lock()
-
-    #     return log
-
-    # def lock_next(self, using='locking', tries=10):
-    #     for __ in range(tries):
-    #         log = self.get_queryset().annotate(
-    #             is_locked=self.IS_LOCKED,
-    #             lock_acquired=self.LOCK_ACQUIRED,
-    #             # allowed_start_date=F('end_date') + F('source_config__harvest_interval'),
-    #         ).select_related('source_config__source').filter(
-    #             # allowed_start_date__lte=TransactionNow(),
-    #             is_locked=False,
-    #             source_config__disabled=False,
-    #             source_config__source__is_deleted=False,
-    #             status__in=[
-    #                 self.model.STATUS.created,
-    #                 self.model.STATUS.started,
-    #                 self.model.STATUS.rescheduled,
-    #                 self.model.STATUS.cancelled,
-    #             ]
-    #         ).using(using).first()
-
-    #         # Sometimes another process will beat us to the lock
-    #         # there doesn't appear to be a great way to avoid this
-    #         # while only locking one row, especially when limitted to
-    #         # Django's interface
-    #         if log and log.lock_acquired:
-    #             return log
-    #     return None
+        return LockableQuerySet(self.model, using=self._db)
 
 
 class HarvestLog(AbstractBaseLog):
@@ -381,28 +354,6 @@ class HarvestLog(AbstractBaseLog):
     def handle(self, harvester_version):
         self.harvester_version = harvester_version
         return super().handle()
-
-    def spawn_task(self, ingest=True, force=False, limit=None, superfluous=False, ignore_disabled=False, async=True):
-        from share.tasks import HarvesterTask
-        # TODO Move most if not all of the logic for task argument massaging here.
-        # It's bad to have two places already but this is required to backharvest a source without timing out on uwsgi
-        task = HarvesterTask()
-
-        targs = (1, self.source_config.label)
-        tkwargs = {
-            'end': self.end_date.isoformat(),
-            'start': self.start_date.isoformat(),
-            'ingest': ingest,
-            'limit': limit,
-            'force': force,
-            'superfluous': superfluous
-        }
-
-        task_id = str(self.task_id) if self.task_id else None
-
-        if async:
-            return HarvesterTask.mro()[1].apply_async(task, targs, tkwargs, task_id=task_id)
-        return HarvesterTask.mro()[1].apply(task, targs, tkwargs, task_id=task_id, throw=True)
 
     def __repr__(self):
         return '<{type}({id}, {status}, {source}, {start_date}, {end_date})>'.format(

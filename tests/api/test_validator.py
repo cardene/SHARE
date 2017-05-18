@@ -2,7 +2,7 @@ import json
 import pytest
 import requests
 
-from tests.share.models import factories
+from tests import factories
 
 invalid_work = {
     'data': {
@@ -350,7 +350,7 @@ class TestValidator:
     def test_robot_validator(self, robot_user, raw_data_id, client):
         args, kwargs = (), {'content_type': 'application/vnd.api+json'}
 
-        normalizer_task = factories.CeleryProviderTaskFactory()
+        normalizer_task = factories.CeleryTaskResultFactory()
 
         _request = requests.Request('POST', json={
             'data': {

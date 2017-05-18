@@ -1,4 +1,5 @@
 from hashlib import sha256
+import contextlib
 import logging
 
 from stevedore import driver
@@ -130,17 +131,27 @@ class SourceConfig(models.Model):
     def get_transformer(self):
         return self.transformer.get_class()(self, **(self.transformer_kwargs or {}))
 
-    def acquire_lock(self, using='locking'):
+    @contextlib.contextmanager
+    def acquire_lock(self, required=True, using='default'):
         from share.harvest.exceptions import HarvesterConcurrencyError
 
         # NOTE: Must be in transaction
         logger.debug('Attempting to lock %r', self)
         with connections[using].cursor() as cursor:
-            cursor.execute("SELECT pg_try_advisory_xact_lock(%s::regclass::integer, %s);", (self._meta.db_table, self.id))
-            if not cursor.fetchone()[0]:
+            cursor.execute("SELECT pg_try_advisory_lock(%s::regclass::integer, %s);", (self._meta.db_table, self.id))
+            locked = cursor.fetchone()[0]
+            if not locked and required:
                 logger.warning('Lock failed; another task is already harvesting %r.', self)
                 raise HarvesterConcurrencyError('Unable to lock {!r}'.format(self))
-            logger.debug('Lock acquired on %r', self)
+            elif locked:
+                logger.debug('Lock acquired on %r', self)
+            else:
+                logger.warning('Lock not acquired on %r', self)
+            try:
+                yield
+            finally:
+                cursor.execute("SELECT pg_advisory_unlock(%s::regclass::integer, %s);", (self._meta.db_table, self.id))
+                logger.debug('Lock released on %r', self)
 
     def find_missing_dates(self):
         from share.models import HarvestLog

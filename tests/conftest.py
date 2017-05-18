@@ -30,7 +30,6 @@ def pytest_configure(config):
     # If we create a queryset here, all of typedmodels cached properties
     # will be filled in while recursion detection isn't active
     Article.objects.all()
-
     if config.option.usepdb:
         try:
             import IPython.core.debugger  # noqa

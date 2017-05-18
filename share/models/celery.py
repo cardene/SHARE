@@ -12,7 +12,7 @@ TASK_STATE_CHOICES = sorted(zip(ALL_STATES, ALL_STATES))
 
 class CeleryTaskResult(models.Model):
 
-    correlation_id = models.TextField()
+    correlation_id = models.TextField(blank=True)
     status = models.CharField(max_length=50, default=states.PENDING, choices=TASK_STATE_CHOICES)
     task_id = models.UUIDField(db_index=True)
 

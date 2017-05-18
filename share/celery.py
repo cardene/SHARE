@@ -42,6 +42,16 @@ def die_on_unhandled(func):
 
 # Based on https://github.com/celery/django-celery-results/commit/f88c677d66ba1eaf1b7cb1f3b8c910012990984f
 class CeleryDatabaseBackend(BaseDictBackend):
+    """
+
+    Implemented from scratch rather than subclassed due to:
+    * Meta/State information was being pushed into the results field and would ultimately get overidden by the result of the task when it finished.
+    * Meta/State information was being stored as a JSON string.
+      This way we can index/query that field to get information about specific types of tasks
+    * IIRC, neither the task name nor the task arguments where being stored
+    * The die on database connection error functionality would require reimplementing all methods.
+
+    """
     TaskModel = CeleryTaskResult
 
     @die_on_unhandled

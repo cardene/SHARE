@@ -1,11 +1,13 @@
 from unittest import mock
 import datetime
-import pkg_resources
 import hashlib
+import pkg_resources
+import uuid
 
 import stevedore
 
 import factory
+from factory import fuzzy
 from factory.django import DjangoModelFactory
 
 from django.utils import timezone
@@ -145,3 +147,12 @@ class RawDatumFactory(DjangoModelFactory):
             attrs['sha256'] = hashlib.sha256(attrs.get('datum', '').encode()).hexdigest()
 
         return super()._generate(create, attrs)
+
+
+class CeleryTaskResultFactory(DjangoModelFactory):
+    task_id = factory.Sequence(lambda x: uuid.uuid4())
+    status = fuzzy.FuzzyChoice(list(zip(*models.CeleryTaskResult._meta.get_field('status').choices))[0])
+    celery_meta = {}
+
+    class Meta:
+        model = models.CeleryTaskResult

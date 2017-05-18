@@ -177,15 +177,7 @@ class BaseHarvester(metaclass=abc.ABCMeta):
         if (self.config.disabled or self.config.source.is_deleted) and not (force or ignore_disabled):
             raise HarvesterDisabledError('Harvester {!r} is disabled. Either enable it, run with force=True, or ignore_disabled=True.'.format(self.config))
 
-        with transaction.atomic(using='locking'):
-            if lock:
-                try:
-                    self.config.acquire_lock(using='locking')
-                except HarvesterConcurrencyError as e:
-                    if not force:
-                        raise e
-                    logger.warning('force = True, proceeding without SourceConfig lock.')
-
+        with self.config.acquire_lock(required=not force):
             logger.info('Harvesting %s - %s from %r', start, end, self.config)
             yield from RawDatum.objects.store_chunk(self.config, self.fetch_date_range(start, end, **kwargs), limit=limit)
 

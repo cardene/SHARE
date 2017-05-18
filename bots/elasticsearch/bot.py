@@ -5,9 +5,7 @@ from django.apps import apps
 from django.conf import settings
 from elasticsearch import Elasticsearch
 
-from bots.elasticsearch.tasks import IndexModelTask
-from bots.elasticsearch.tasks import IndexSourceTask
-from share.bot import Bot
+from bots.elasticsearch import tasks
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +22,7 @@ def chunk(iterable, size):
         yield l
 
 
-class ElasticSearchBot(Bot):
-
+class ElasticSearchBot:
     SETTINGS = {
         'analysis': {
             'filter': {
@@ -144,14 +141,12 @@ class ElasticSearchBot(Bot):
         },
     }
 
-    def __init__(self, config, started_by, last_run=None, **kwargs):
-        super().__init__(config, started_by, last_run=last_run)
-
+    def __init__(self, **kwargs):
         self.es_filter = kwargs.pop('es_filter', None)
-        self.es_setup = bool(kwargs.pop('es_setup', False))
-        self.es_url = kwargs.pop('es_url', settings.ELASTICSEARCH_URL)
         self.es_index = kwargs.pop('es_index', settings.ELASTICSEARCH_INDEX)
         self.es_models = kwargs.pop('es_models', None)
+        self.es_setup = bool(kwargs.pop('es_setup', False))
+        self.es_url = kwargs.pop('es_url', settings.ELASTICSEARCH_URL)
 
         if self.es_models:
             self.es_models = [x.lower() for x in self.es_models]
@@ -203,10 +198,10 @@ class ElasticSearchBot(Bot):
 
             for i, batch in enumerate(chunk(qs.all(), chunk_size)):
                 if batch:
-                    IndexModelTask().apply_async((self.started_by.id, self.config.label, model.__name__, batch,), {'es_url': self.es_url, 'es_index': self.es_index})
+                    tasks.index_model.apply_async((model.__name__, batch,), {'es_url': self.es_url, 'es_index': self.es_index})
 
         logger.info('Starting task to index sources')
-        IndexSourceTask().apply_async((self.started_by.id, self.config.label), {'es_url': self.es_url, 'es_index': self.es_index})
+        tasks.index_sources.apply_async((), {'es_url': self.es_url, 'es_index': self.es_index})
 
     def setup(self):
         logger.debug('Ensuring Elasticsearch index %s', self.es_index)
