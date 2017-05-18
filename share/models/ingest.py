@@ -125,8 +125,8 @@ class SourceConfig(models.Model):
     def natural_key(self):
         return (self.label,)
 
-    def get_harvester(self):
-        return self.harvester.get_class()(self, **(self.harvester_kwargs or {}))
+    def get_harvester(self, **kwargs):
+        return self.harvester.get_class()(self, **{**kwargs, **(self.harvester_kwargs or {})})
 
     def get_transformer(self):
         return self.transformer.get_class()(self, **(self.transformer_kwargs or {}))
@@ -150,8 +150,9 @@ class SourceConfig(models.Model):
             try:
                 yield
             finally:
-                cursor.execute("SELECT pg_advisory_unlock(%s::regclass::integer, %s);", (self._meta.db_table, self.id))
-                logger.debug('Lock released on %r', self)
+                if locked:
+                    cursor.execute("SELECT pg_advisory_unlock(%s::regclass::integer, %s);", (self._meta.db_table, self.id))
+                    logger.debug('Lock released on %r', self)
 
     def find_missing_dates(self):
         from share.models import HarvestLog
