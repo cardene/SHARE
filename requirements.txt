@@ -6,6 +6,8 @@ celery==4.0.2  # BSD 3 Clause
 colorlog==2.7.0  # MIT
 dateparser==0.4.0  # BSD
 django-allauth==0.31.0  # MIT
+django-celery-beat==1.0.1  # BSD 3 Clause
+django-celery-results==1.0.1  # BSD 3 Clause
 django-cors-headers==2.0.2  # MIT
 django-extensions==1.7.8  # MIT
 django-filter==1.0.2  # BSD
