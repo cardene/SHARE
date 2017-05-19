@@ -137,6 +137,12 @@ def harvest(self, log_id=None, source_id=None, source_config_id=None, ignore_dis
             log.task_id = self.request.id
             HarvestLog.objects.filter(id=log.id).update(task_id=self.request.id)
 
+        if log.completions > 0 and log.status == HarvestLog.STATUS.succeeded and not superfluous:
+            log.skip(HarvestLog.SkipReasons.duplicated)
+            return logger.warning('%r has already been harvested. Force a re-run with superfluous=True', log)
+        elif log.completions > 0 and log.status == HarvestLog.STATUS.succeeded:
+            logger.info('%r has already been harvested. Re-running superfluously', log)
+
         if exhaust and log_id is None:
             if force:
                 logger.warning('propagating force=True until queue exhaustion')
@@ -185,4 +191,4 @@ def schedule_harvests(self, *source_config_ids, cutoff=None):
         for source_config in qs.select_related('harvester').annotate(latest=models.Max('harvest_logs__end_date')):
             logs.extend(HarvestScheduler(source_config).all(cutoff=cutoff, save=False))
 
-        HarvestLog.objects.bulk_create(logs)
+        HarvestLog.objects.bulk_get_or_create(logs)

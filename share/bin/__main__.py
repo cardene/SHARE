@@ -23,6 +23,7 @@ from docopt import docopt
 from django.conf import settings
 
 from share.bin import debug  # noqa
+from share.bin import harvest  # noqa
 from share.bin import info  # noqa
 from share.bin import ingest  # noqa
 from share.bin.util import COMMANDS

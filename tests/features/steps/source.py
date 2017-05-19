@@ -1,7 +1,10 @@
 import behave
 
+import pendulum
+
 from share import models
 from share import tasks
+from share.harvest.scheduler import HarvestScheduler
 
 from tests import factories
 
@@ -48,8 +51,12 @@ def update_harvester(context, label, version):
 @behave.when('{label} is harvested')
 @behave.when('{label} is harvested for {start} to {end}')
 def start_harvest(context, label, start=None, end=None):
-    start, end = tasks.HarvesterTask.resolve_date_range(start, end)
-    tasks.HarvesterTask().apply((1, label), {'start': start, 'end': end}, retries=99999999999)
+    log = HarvestScheduler(models.SourceConfig.objects.get(label=label)).range(
+        pendulum.parse(start),
+        pendulum.parse(end),
+    )[0]
+
+    tasks.harvest(log_id=log.id)
 
 
 @behave.then('it\'s {field} will be {value}')

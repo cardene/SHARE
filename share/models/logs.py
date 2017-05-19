@@ -13,6 +13,7 @@ from django.conf import settings
 from django.db import connection
 from django.db import connections
 from django.db import models
+from django.db import transaction
 from django.db.models.expressions import RawSQL
 from django.utils import timezone
 from django.utils.translation import ugettext_lazy as _
@@ -75,6 +76,57 @@ class AbstractLogManager(models.Manager):
         )
 
         return self._bulk_query(query, default_values, data, db_alias)
+
+    def bulk_get_or_create(self, objs, defaults=None, using='default'):
+        if len(self.model._meta.unique_together) != 1:
+            raise ValueError('Cannot determine the constraint to use for ON CONFLICT')
+
+        if not objs:
+            return []
+
+        columns = []
+        defaults = defaults or {}
+
+        for field in self.model._meta.concrete_fields:
+            if field is not self.model._meta.pk:
+                columns.append(field.column)
+            if field in defaults:
+                continue
+            if field.default is not models.NOT_PROVIDED or field.null:
+                defaults[field] = field._get_default()
+            elif isinstance(field, models.DateField) and (field.auto_now or field.auto_now_add):
+                defaults[field] = timezone.now()
+
+        if any(obj.pk for obj in objs):
+            raise ValueError('Cannot bulk_get_or_create objects with primary keys')
+
+        constraint = ', '.join('"{1.column}"'.format(self.model, self.model._meta.get_field(field)) for field in self.model._meta.unique_together[0])
+
+        loaded = []
+        with transaction.atomic(using):
+            for chunk in chunked(objs, 500):
+                if not chunk:
+                    break
+                loaded.extend(self.raw('''
+                    INSERT INTO "{model._meta.db_table}"
+                        ({columns})
+                    VALUES
+                        {values}
+                    ON CONFLICT
+                        ({constraint})
+                    DO UPDATE SET
+                        id = "{model._meta.db_table}".id
+                    RETURNING *
+                '''.format(
+                    model=self.model,
+                    columns=', '.join(columns),
+                    constraint=constraint,
+                    values=', '.join(['%s'] * len(chunk)),
+                ), [
+                    tuple(getattr(obj, field.attname, None) or defaults[field] for field in self.model._meta.concrete_fields[1:])
+                    for obj in chunk
+                ]))
+        return loaded
 
     def _bulk_query(self, query, default_values, data, db_alias):
         fields = [field.name for field in self.model._meta.concrete_fields]

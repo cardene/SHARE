@@ -16,6 +16,17 @@ class HarvestScheduler:
         self.source_config = source_config
 
     def all(self, cutoff=None, allow_backharvest=True, **kwargs):
+        """
+        Args:
+            cutoff (date, optional): The upper bound to schedule harvests to. Default to today.
+            allow_backharvest (bool, optional): Allow a SourceConfig to generate a full back harvest. Defaults to True.
+                The SourceConfig must be marked as backharvestable and have earliest_date set.
+            **kwargs: Forwarded to .range
+
+        Returns:
+            A list of harvest logs
+
+        """
         if cutoff is None:
             cutoff = pendulum.utcnow().date()
 
@@ -32,18 +43,56 @@ class HarvestScheduler:
         return self.range(latest_date, cutoff, **kwargs)
 
     def today(self, **kwargs):
+        """
+        Functionally the same as calling .range(today, tomorrow)[0].
+        You probably want to use .yesterday rather than .today.
+
+        Args:
+            **kwargs: Forwarded to .date
+
+        Returns:
+            A single Harvest log that *includes* today.
+
+        """
         return self.date(pendulum.today().date(), **kwargs)
 
     def yesterday(self, **kwargs):
+        """
+        Functionally the same as calling .range(yesterday, today)[0].
+
+        Args:
+            **kwargs: Forwarded to .date
+
+        Returns:
+            A single Harvest log that *includes* yesterday.
+
+        """
         return self.date(pendulum.yesterday().date(), **kwargs)
 
     def date(self, date, **kwargs):
+        """
+        Args:
+            date (date):
+            **kwargs: Forwarded to .range
+
+        Returns:
+            A single Harvest log that *includes* date.
+
+        """
         return self.range(date, date.add(days=1), **kwargs)[0]
 
     def range(self, start, end, save=True):
-        if start >= end:
-            raise ValueError('start must be less than end. {!r} >= {!r}'.format(start, end))
+        """
 
+        Args:
+            start (date):
+            end (date):
+            save (bool, optional): If True, attempt to save the created HarvestLogs. Defaults to True.
+
+        Returns:
+            A list of HarvestLogs within [start, end).
+
+        """
         logs = []
 
         log_kwargs = {
@@ -58,7 +107,7 @@ class HarvestScheduler:
             sd, ed = ed, ed + self.source_config.harvest_interval
             logs.append(HarvestLog(start_date=sd, end_date=ed, **log_kwargs))
 
-        if save:
-            HarvestLog.objects.bulk_create(logs)
+        if logs and save:
+            return HarvestLog.objects.bulk_get_or_create(logs)
 
         return logs
