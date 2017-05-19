@@ -1,8 +1,6 @@
 import logging
 import functools
 
-import raven
-
 from celery import states
 from celery.app.task import Context
 from celery.utils.time import maybe_timedelta
@@ -17,6 +15,8 @@ logger = logging.getLogger(__name__)
 
 
 if hasattr(settings, 'RAVEN_CONFIG') and settings.RAVEN_CONFIG['dsn']:
+    import raven
+
     client = raven.Client(settings.RAVEN_CONFIG['dsn'])
 else:
     client = None

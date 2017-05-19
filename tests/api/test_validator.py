@@ -1,6 +1,7 @@
 import json
 import pytest
 import requests
+from unittest import mock
 
 from tests import factories
 
@@ -344,7 +345,9 @@ class TestValidator:
 
         kwargs['HTTP_AUTHORIZATION'] = 'Bearer {}'.format(trusted_user.accesstoken_set.first())
 
-        assert response == client.post('/api/v2/normalizeddata/', *args, **kwargs)
+        with mock.patch('api.views.workflow.disambiguate') as mock_disambiguate:
+            mock_disambiguate.delay().id = '123'
+            assert response == client.post('/api/v2/normalizeddata/', *args, **kwargs)
 
     @pytest.mark.django_db
     def test_robot_validator(self, robot_user, raw_data_id, client):
@@ -370,7 +373,9 @@ class TestValidator:
 
         kwargs['HTTP_AUTHORIZATION'] = 'Bearer {}'.format(robot_user.accesstoken_set.first())
 
-        response = client.post('/api/v2/normalizeddata/', *args, **kwargs)
+        with mock.patch('api.views.workflow.disambiguate') as mock_disambiguate:
+            mock_disambiguate.delay().id = '123'
+            response = client.post('/api/v2/normalizeddata/', *args, **kwargs)
 
         assert response.status_code == 202
         assert response.json()['data']['id'] is not None

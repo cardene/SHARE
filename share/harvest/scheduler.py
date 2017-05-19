@@ -32,10 +32,10 @@ class HarvestScheduler:
         return self.range(latest_date, cutoff, **kwargs)
 
     def today(self, **kwargs):
-        return self.date(pendulum.today().date(), **kwargs)[0]
+        return self.date(pendulum.today().date(), **kwargs)
 
     def yesterday(self, **kwargs):
-        return self.date(pendulum.yesterday().date(), **kwargs)[0]
+        return self.date(pendulum.yesterday().date(), **kwargs)
 
     def date(self, date, **kwargs):
         return self.range(date, date.add(days=1), **kwargs)[0]
