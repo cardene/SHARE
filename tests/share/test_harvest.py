@@ -25,6 +25,13 @@ def source_config():
     return factories.SourceConfigFactory()
 
 
+@pytest.fixture
+def mock_transform(monkeypatch):
+    mock_transform = mock.Mock()
+    monkeypatch.setattr('share.tasks.transform', mock_transform)
+    return mock_transform
+
+
 class SyncedThread(threading.Thread):
 
     def __init__(self, target, args=(), kwargs={}):
@@ -170,7 +177,7 @@ class TestHarvestTask:
         assert log.completions == 0
         assert 'ValueError: In a test' in log.context
 
-    def test_harvest_database_error(self, source_config):
+    def test_harvest_database_error(self, source_config, mock_transform):
         log = factories.HarvestLogFactory(source_config=source_config)
 
         def _do_fetch(*args, **kwargs):
@@ -190,8 +197,9 @@ class TestHarvestTask:
         assert log.status == HarvestLog.STATUS.failed
         assert log.completions == 0
         assert 'DatabaseError: In a test' in log.context
+        assert mock_transform.apply_async.call_count == 3
 
-    def test_partial_harvest_fails(self, source_config):
+    def test_partial_harvest_fails(self, source_config, mock_transform):
         log = factories.HarvestLogFactory(source_config=source_config)
 
         def _do_fetch(*args, **kwargs):
@@ -211,6 +219,7 @@ class TestHarvestTask:
         assert log.status == HarvestLog.STATUS.failed
         assert log.completions == 0
         assert 'ValueError: In a test' in log.context
+        assert mock_transform.apply_async.call_count == 3
 
     def test_log_values(self, source_config):
         task_id = uuid.uuid4()

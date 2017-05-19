@@ -40,8 +40,7 @@ admin.site.register(CeleryTaskResult, CeleryTaskResultAdmin)
 class NormalizedDataAdmin(admin.ModelAdmin):
     date_hierarchy = 'created_at'
     list_filter = ['source', ]
-    # raw_id_fields = ('raw', 'tasks',)
-    raw_id_fields = ('raw', )
+    raw_id_fields = ('raw', 'tasks',)
 
 
 class ChangeSetSubmittedByFilter(SimpleListFilter):

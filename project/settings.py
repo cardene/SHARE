@@ -348,8 +348,6 @@ CELERY_TASK_ROUTES = {
     'share.tasks.disambiguate': {'priority': 20, 'queue': 'disambiguate'},
 }
 
-# CELERY_TASK_QUEUES = {v['queue']: {} for v in CELERY_TASK_ROUTES.values()}
-
 
 # Logging
 LOG_LEVEL = os.environ.get('LOG_LEVEL', 'WARNING').upper()

@@ -2,7 +2,6 @@ import logging
 import random
 
 import celery
-import pendulum
 import requests
 
 from django.apps import apps
@@ -20,6 +19,7 @@ from share.models import NormalizedData
 from share.models import RawDatum
 from share.models import Source
 from share.models import SourceConfig
+from share.harvest.scheduler import HarvestScheduler
 
 
 logger = logging.getLogger(__name__)
@@ -174,36 +174,15 @@ def schedule_harvests(self, *source_config_ids, cutoff=None):
         cutoff (optional, datetime): The time to schedule harvests up to. Defaults to today.
 
     """
-    if cutoff is None:
-        cutoff = pendulum.utcnow().date()
-
     if source_config_ids:
         qs = SourceConfig.objects.filter(id__in=source_config_ids)
     else:
         qs = SourceConfig.objects.exclude(disabled=True).exclude(source__is_deleted=True)
 
-    # TODO This could be much more efficient
     with transaction.atomic():
         logs = []
 
         for source_config in qs.select_related('harvester').annotate(latest=models.Max('harvest_logs__end_date')):
-            if not source_config.latest and source_config.backharvesting and source_config.earliest_date:
-                end_date = source_config.earliest_date
-            elif source_config.latest is None:
-                end_date = cutoff - source_config.harvest_interval
-            else:
-                end_date = source_config.latest
-
-            log_kwargs = {
-                'source_config': source_config,
-                'source_config_version': source_config.version,
-                'harvester_version': source_config.get_harvester().VERSION,
-            }
-
-            while end_date + source_config.harvest_interval <= cutoff:
-                start_date = end_date
-                end_date = end_date + source_config.harvest_interval
-
-                logs.append(HarvestLog(start_date=start_date, end_date=end_date, **log_kwargs))
+            logs.extend(HarvestScheduler(source_config).all(cutoff=cutoff, save=False))
 
         HarvestLog.objects.bulk_create(logs)
