@@ -51,7 +51,7 @@ class BaseHarvester(metaclass=abc.ABCMeta):
         # TODO Add custom user agent
         self.requests = RateLimittedProxy(requests.Session(), self.config.rate_limit_allowance, self.config.rate_limit_period)
 
-    def fetch_id(self, identifier: str) -> FetchResult:
+    def fetch_id(self, identifier):
         """Fetch a document by provider ID.
 
         Optional to implement, intended for dev and manual testing.
@@ -65,7 +65,7 @@ class BaseHarvester(metaclass=abc.ABCMeta):
         """
         raise NotImplementedError('{!r} does not support fetching by ID'.format(self))
 
-    def fetch(self, **kwargs):
+    def fetch(self, today=False, **kwargs):
         """Fetch data from today.
 
         Yields:
@@ -82,7 +82,7 @@ class BaseHarvester(metaclass=abc.ABCMeta):
         """
         return self.fetch_date_range(date - datetime.timedelta(days=1), date, **kwargs)
 
-    def fetch_date_range(self, start: datetime.date, end: datetime.date, limit=None, **kwargs):
+    def fetch_date_range(self, start, end, limit=None, **kwargs):
         """Fetch data from the specified date range.
 
         Yields:
@@ -121,7 +121,7 @@ class BaseHarvester(metaclass=abc.ABCMeta):
             if limit is not None and i >= limit:
                 break
 
-    def harvest_id(self, identifier) -> RawDatum:
+    def harvest_id(self, identifier):
         """Harvest a document by ID.
 
         Note:
@@ -137,8 +137,8 @@ class BaseHarvester(metaclass=abc.ABCMeta):
         res = self.fetch_by_id(identifier)
         return RawDatum.objects.store_data(res.identifier, res.datum, self.config)
 
-    def harvest(self, **kwargs):
-        """Fetch data from today.
+    def harvest(self, today=False, **kwargs):
+        """Fetch data from Yesterday.
 
         Yields:
             RawDatum
@@ -146,7 +146,7 @@ class BaseHarvester(metaclass=abc.ABCMeta):
         """
         return self.harvest_date_range(datetime.date.today() - datetime.timedelta(days=1), datetime.date.today(), **kwargs)
 
-    def harvest_date(self, date: datetime.date, **kwargs):
+    def harvest_date(self, date, **kwargs):
         """Harvest data from the specified date.
 
         Yields:
@@ -155,10 +155,12 @@ class BaseHarvester(metaclass=abc.ABCMeta):
         """
         return self.fetch_date_range(date - datetime.timedelta(days=1), date, **kwargs)
 
-    def harvest_date_range(self, start: datetime.date, end: datetime.date, limit=None, force=False, ignore_disabled=False, lock=True, **kwargs):
+    def harvest_date_range(self, start, end, limit=None, force=False, ignore_disabled=False, lock=True, **kwargs):
         """Fetch data from the specified date range.
 
         Args:
+            start (date):
+            end (date):
             limit (int, optional): The maximum number of unique data to harvest. Defaults to None.
             force (bool, optional): Disable all safety checks, unexpected exceptions will still be raised. Defaults to False.
             ignore_disabled (bool, optional): Don't check if this Harvester or Source is disabled or deleted. Defaults to False.
@@ -212,7 +214,7 @@ class BaseHarvester(metaclass=abc.ABCMeta):
                     if not error:
                         raise e
 
-    def _do_fetch(self, start: datetime.datetime, end: datetime.datetime, **kwargs) -> Iterator[FetchResult]:
+    def _do_fetch(self, start, end, **kwargs):
         """Fetch date from this source inside of the given date range.
 
         The given date range should be treated as [start, end)

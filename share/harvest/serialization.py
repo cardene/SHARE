@@ -9,27 +9,27 @@ class RawDatumSerializer:
     """A deterministic serializer for harvested data.
     """
 
-    def __init__(self, pretty: bool=False):
+    def __init__(self, pretty):
         self.pretty = pretty
 
-    def serialize(self, value) -> str:
+    def serialize(self, value):
         raise NotImplementedError()
 
 
 class DictSerializer(RawDatumSerializer):
 
-    def serialize(self, value: dict) -> str:
+    def serialize(self, value):
         return json.dumps(value, sort_keys=True, indent=4 if self.pretty else None)
 
 
 class EverythingSerializer(RawDatumSerializer):
-    def __init__(self, pretty: bool=False):
+    def __init__(self, pretty=False):
         super().__init__(pretty=pretty)
         self.warned = False
         self.dict_serializer = DictSerializer(pretty=pretty)
         warnings.warn('{!r} is deprecated. Use a serializer meant for the data returned'.format(self), DeprecationWarning)
 
-    def serialize(self, data, pretty=False) -> str:
+    def serialize(self, data, pretty=False):
         if isinstance(data, str):
             return data
         if isinstance(data, bytes):

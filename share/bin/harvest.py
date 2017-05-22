@@ -64,8 +64,9 @@ def fetch(args, argv):
 def harvest(args, argv):
     """
     Usage:
-        share harvest <sourceconfig> [<date> | (--start=YYYY-MM-DD> --end=YYYY-MM-DD)] [-afsj] [options]
-        share harvest <sourceconfig> [<date> | (--start=YYYY-MM-DD --end=YYYY-MM-DD)] [-nflj] [options]
+        share harvest <sourceconfig> [<date>] [-afsj | -nflj] [options]
+        share harvest <sourceconfig> --all [<date>] [-afsj | -nflj] [options]
+        share harvest <sourceconfig> (--start=YYYY-MM-DD> --end=YYYY-MM-DD) [-afsj | -nflj] [options]
 
     Options:
         -l, --limit=NUMBER      Limit the harvester to NUMBER of documents
