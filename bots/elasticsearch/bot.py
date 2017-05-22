@@ -5,8 +5,6 @@ from django.apps import apps
 from django.conf import settings
 from elasticsearch import Elasticsearch
 
-from bots.elasticsearch import tasks
-
 logger = logging.getLogger(__name__)
 
 
@@ -23,6 +21,15 @@ def chunk(iterable, size):
 
 
 class ElasticSearchBot:
+
+    # Sources are also indexed as a special case
+    INDEX_MODELS = [
+        'CreativeWork',
+        'Agent',
+        'Tag',
+        # 'Subject',
+    ]
+
     SETTINGS = {
         'analysis': {
             'filter': {
@@ -167,13 +174,15 @@ class ElasticSearchBot:
         return '2000-01-01T00:00:00-00:00'
 
     def run(self, chunk_size=500):
+        from bots.elasticsearch import tasks  # TODO fix me
+
         if self.es_setup:
             self.setup()
         else:
             logger.debug('Skipping ES setup')
 
         logger.info('Loading up indexed models')
-        for model_name in self.config.INDEX_MODELS:
+        for model_name in self.INDEX_MODELS:
             if self.es_models and model_name.lower() not in self.es_models:
                 continue
 

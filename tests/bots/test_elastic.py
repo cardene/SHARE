@@ -109,7 +109,10 @@ class TestIndexSource:
 
 @pytest.mark.django_db
 class TestJanitorTask:
-    def test_missing_records_get_indexed(self, elastic):
+    def test_missing_records_get_indexed(self, elastic, monkeypatch):
+        monkeypatch.setattr('bots.elasticsearch.tasks.index_model.apply_async', tasks.index_model.apply)
+        monkeypatch.setattr('bots.elasticsearch.tasks.index_sources.apply_async', tasks.index_sources.apply)
+
         x = factories.AbstractCreativeWorkFactory()
         source = factories.SourceFactory()
         x.sources.add(source.user)
@@ -118,7 +121,7 @@ class TestJanitorTask:
         source = factories.SourceFactory()
         y.sources.add(source.user)
 
-        tasks.JanitorTask().apply((1, elastic.config.label))
+        tasks.elasticsearch_janitor()
 
         assert elastic.es_client.get(index=elastic.es_index, doc_type='creativeworks', id=IDObfuscator.encode(x))['found'] is True
         assert elastic.es_client.get(index=elastic.es_index, doc_type='creativeworks', id=IDObfuscator.encode(y))['found'] is True

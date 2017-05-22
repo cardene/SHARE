@@ -7,9 +7,8 @@ import pendulum
 from django.apps import apps
 from django.conf import settings
 from django.db.models import Min
-
-from elasticsearch import helpers
 from elasticsearch import Elasticsearch
+from elasticsearch import helpers
 
 from share.models import Agent
 from share.models import CreativeWork
@@ -240,13 +239,11 @@ def pseudo_bisection(self, es_url, es_index, min_date, max_date, dry=False):
 
         logger.debug('dry=False, reindexing missing works')
 
+        task = update_elasticsearch(filter={
+            'date_created__range': [min_date, max_date]
+        })
 
-        bot = apps.get_app_config('elasticsearch').get_bot(
-            ShareUser.objects.get(username=settings.APPLICATION_USERNAME),
-            es_filter={'date_created__range': [min_date, max_date]},
-        )
-        bot.run()
-        return
+        return logger.info('Spawned %r', task)
 
     logger.debug('Did NOT meet the threshold of %d total works to index or %d%% missing works.', MAX_DB_COUNT, MIN_MISSING_RATIO * 100)
 
@@ -267,7 +264,7 @@ def pseudo_bisection(self, es_url, es_index, min_date, max_date, dry=False):
         return
 
 
-@app.shared_task(bind=True)
+@celery.shared_task(bind=True)
 def elasticsearch_janitor(self, es_url=None, es_index=None, dry=False):
     """
     Looks for discrepancies between postgres and elastic search numbers
@@ -285,4 +282,4 @@ def elasticsearch_janitor(self, es_url=None, es_index=None, dry=False):
     max_date = pendulum.utcnow()
     min_date = pendulum.instance(min_date)
 
-    pseudo_bisection.apply((es_url, es_index, min_date.isoformat(), max_date.isoformat()), {'dry': dry})
+    pseudo_bisection.apply((es_url, es_index, min_date.isoformat(), max_date.isoformat()), {'dry': dry}, throw=True)

@@ -1,4 +1,3 @@
-from typing import Iterator
 import abc
 import collections
 import datetime
