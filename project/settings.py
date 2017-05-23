@@ -314,15 +314,20 @@ CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'amqp://'),
 
 CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
 CELERY_BEAT_SCHEDULE = {
+    # Once a minute
+    'Update Search': {
+        'task': 'bots.elasticsearch.tasks.update_elasticsearch',
+        'schedule': 60,
+    },
+    # Every 2 minutes
     'Harvest Task': {
         'task': 'share.tasks.harvest',
-        'schedule': 30.0,
+        'schedule': 120,
     },
     # Executes daily at 11:30 P.M
-    'es-janitor-task': {
-        'task': 'bots.elasticsearch.tasks.JanitorTask',
+    'Elasticsearch Janitor': {
+        'task': 'bots.elasticsearch.tasks.elasticsearch_janitor',
         'schedule': crontab(hour=23, minute=30),
-        'args': (1, 'elasticsearch'),
     },
 }
 
@@ -348,6 +353,7 @@ CELERY_TASK_ROUTES = {
     'share.tasks.disambiguate': {'priority': 20, 'queue': 'disambiguate'},
 }
 
+CELERY_TASK_QUEUES = {q['queue']: {} for q in CELERY_TASK_ROUTES.values()}
 
 # Logging
 LOG_LEVEL = os.environ.get('LOG_LEVEL', 'WARNING').upper()

@@ -25,9 +25,11 @@ else:
 def die_on_unhandled(func):
     @functools.wraps(func)
     def wrapped(*args, **kwargs):
+        err = None
         try:
             return func(*args, **kwargs)
         except Exception as e:
+            err = e
             try:
                 logger.exception('Celery internal method %s failed', func)
                 try:
@@ -36,7 +38,8 @@ def die_on_unhandled(func):
                 except Exception as ee:
                     logger.exception('Could not log exception to Sentry')
             finally:
-                raise SystemExit(57)  # Something a bit less generic than 1 or -1
+                if err:
+                    raise SystemExit(57)  # Something a bit less generic than 1 or -1
     return wrapped
 
 

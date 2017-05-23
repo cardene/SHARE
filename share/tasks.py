@@ -19,6 +19,7 @@ from share.models import NormalizedData
 from share.models import RawDatum
 from share.models import Source
 from share.models import SourceConfig
+from share.models import CeleryTaskResult
 from share.harvest.scheduler import HarvestScheduler
 
 
@@ -27,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 @celery.shared_task(bind=True)
 def transform(self, raw_id):
-    raw = RawDatum.objects.get(pk=raw_id)
+    raw = RawDatum.objects.select_related('suid__source_config__source__user').get(pk=raw_id)
     transformer = raw.suid.source_config.get_transformer()
 
     try:
@@ -44,12 +45,12 @@ def transform(self, raw_id):
                 'attributes': {
                     'data': graph,
                     'raw': {'type': 'RawData', 'id': raw_id},
-                    'tasks': [self.request.id]
+                    'tasks': [CeleryTaskResult.objects.get(task_id=self.request.id).id]
                 }
             }
-        }, headers={'Authorization': self.source.authorization(), 'Content-Type': 'application/vnd.api+json'})
+        }, headers={'Authorization': raw.suid.source_config.source.user.authorization(), 'Content-Type': 'application/vnd.api+json'})
     except Exception as e:
-        logger.exception('Failed normalizer task (%s, %d)', self.config.label, raw_id)
+        logger.exception('Failed to transform %r', raw)
         raise self.retry(countdown=10, exc=e)
 
     if (resp.status_code // 100) != 2:
