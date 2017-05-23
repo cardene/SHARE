@@ -22,7 +22,7 @@ class Command:
         self.func = func
         self.parsed = parsed
         self.subcommands = {}
-        self.docstring = '\n'.join(x.strip() for x in (func.__doc__ or '').split('\n'))
+        self.docstring = '\n'.join(x[4:] for x in (func.__doc__ or '').split('\n'))
         self.name = func.__name__
 
     def teaser(self, indent):
@@ -55,7 +55,7 @@ class Command:
             if not args['<command>'] in self.subcommands:
                 print('Invalid command "{<command>}"'.format(**args))
                 return sys.exit(1)
-            return self.subcommands[args['<command>']](argv[1:])
+            return self.subcommands[args['<command>']](argv)
         return self.func(args, argv)
 
 

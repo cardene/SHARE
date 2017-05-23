@@ -64,7 +64,8 @@ def fetch(args, argv):
 def harvest(args, argv):
     """
     Usage:
-        {0} harvest <sourceconfig> [<date>] [-afsj | -nflj] [options]
+        {0} harvest <sourceconfig> [<date>] [-nflj] [options]
+        {0} harvest <sourceconfig> [<date>] [-afsj] [options]
         {0} harvest <sourceconfig> --all [<date>] [-afsj | -nflj] [options]
         {0} harvest <sourceconfig> (--start=YYYY-MM-DD> --end=YYYY-MM-DD) [-afsj | -nflj] [options]
 
