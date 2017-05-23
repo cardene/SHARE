@@ -1,24 +1,77 @@
-import functools
+import os
+import sys
 
-from django.conf import settings
 from docopt import docopt
 
+from django.conf import settings
 
-COMMANDS = {}
+
+class Command:
+
+    @property
+    def subcommand_list(self):
+        indent = (4 + max([len(k) for k in self.subcommands], default=0))
+        return '\n'.join(
+            self.subcommands[k].teaser(indent)
+            for k in sorted(self.subcommands)
+        )
+
+    def __init__(self, func, description, parsed=True):
+        self.bin = os.path.basename(sys.argv[0])
+        self.description = description
+        self.func = func
+        self.parsed = parsed
+        self.subcommands = {}
+        self.docstring = '\n'.join(x.strip() for x in (func.__doc__ or '').split('\n'))
+        self.name = func.__name__
+
+    def teaser(self, indent):
+        return '    {{0.name:{}}}{{0.description}}'.format(indent).format(self)
+
+    def subcommand(self, description, parsed=True):
+        def _inner(func):
+            return self.register(func, description, parsed)
+        return _inner
+
+    def register(self, func, description, parsed=True):
+        cmd = type(self)(func, description, parsed)
+        if cmd.name in self.subcommands:
+            raise ValueError('{} already defined'.format(cmd.name))
+        self.subcommands[cmd.name] = cmd
+        return cmd
+
+    def __call__(self, argv):
+        if self.parsed:
+            args = docopt(
+                self.docstring.format(self.bin, self),
+                argv=argv,
+                version=settings.VERSION,
+                options_first=bool(self.subcommands),
+            )
+        else:
+            args = {}
+
+        if args.get('<command>') and self.subcommands:
+            if not args['<command>'] in self.subcommands:
+                print('Invalid command "{<command>}"'.format(**args))
+                return sys.exit(1)
+            return self.subcommands[args['<command>']](argv[1:])
+        return self.func(args, argv)
 
 
-def command(description):
-    def _command(func):
-        if func.__name__ in COMMANDS:
-            raise ValueError('{} already defined'.format(func.__name__))
+def _execute_cmd(args, argv):
+    """
+    Usage: {0} [--version] [--help] <command> [<args>...]
 
-        @functools.wraps(func)
-        def inner(argv):
-            parsed = docopt(func.__doc__, version=settings.VERSION, argv=argv)
-            return func(parsed, argv)
+    Options:
+        -h, --help     Show this screen.
+        -v, --version  Show version.
 
-        COMMANDS[func.__name__] = inner
-        inner.description = description
+    Commands:
+    {1.subcommand_list}
 
-        return inner
-    return _command
+    See '{0} <command> --help' for more information on a specific command."""
+    return 0
+
+execute_cmd = Command(_execute_cmd, '')
+command = execute_cmd.subcommand

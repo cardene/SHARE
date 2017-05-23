@@ -9,8 +9,8 @@ from share.models import SourceConfig
 @command('Run a SourceConfig\'s transformer')
 def transform(args, argv):
     """
-    Usage: share transform <sourceconfig> FILE ...
-           share transform <sourceconfig> --directory=DIR
+    Usage: {0} transform <sourceconfig> FILE ...
+           {0} transform <sourceconfig> --directory=DIR
 
     Options:
         -d, --directory=DIR  Transform all JSON files in DIR

@@ -1,2 +1,7 @@
-#!/usr/bin/env bash
-python -m share.bin "$@"
+#!/usr/bin/env python
+import os
+import sys
+from share.bin import main
+
+if __name__ == '__main__':
+    main(sys.argv)

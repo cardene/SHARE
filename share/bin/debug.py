@@ -5,7 +5,7 @@ from share.transform.chain import ctx
 @command('Debug a SourceConfig\'s Transformer')
 def debug(args, argv):
     """
-    Usage: share debug <sourceconfig> FILE
+    Usage: {0} debug <sourceconfig> FILE
 
     """
     from share.models import SourceConfig

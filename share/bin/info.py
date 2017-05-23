@@ -5,7 +5,7 @@ from share.bin.util import command
 @command('Print all SourceConfigs')
 def sources(args, argv):
     """
-    Usage: share sources
+    Usage: {0} sources
 
     Print out a list of currently installed source configs
     """

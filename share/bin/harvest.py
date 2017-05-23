@@ -12,7 +12,7 @@ from share.models import SourceConfig
 @command('Fetch data to disk or stdout, using the specified SourceConfig')
 def fetch(args, argv):
     """
-    Usage: share fetch <sourceconfig> [<date> | --start=YYYY-MM-DD --end=YYYY-MM-DD] [--limit=LIMIT] [--print | --out=DIR] [--set-spec=SET]
+    Usage: {0} fetch <sourceconfig> [<date> | --start=YYYY-MM-DD --end=YYYY-MM-DD] [--limit=LIMIT] [--print | --out=DIR] [--set-spec=SET]
 
     Options:
         -l, --limit=NUMBER      Limit the harvester to NUMBER of documents
@@ -64,9 +64,9 @@ def fetch(args, argv):
 def harvest(args, argv):
     """
     Usage:
-        share harvest <sourceconfig> [<date>] [-afsj | -nflj] [options]
-        share harvest <sourceconfig> --all [<date>] [-afsj | -nflj] [options]
-        share harvest <sourceconfig> (--start=YYYY-MM-DD> --end=YYYY-MM-DD) [-afsj | -nflj] [options]
+        {0} harvest <sourceconfig> [<date>] [-afsj | -nflj] [options]
+        {0} harvest <sourceconfig> --all [<date>] [-afsj | -nflj] [options]
+        {0} harvest <sourceconfig> (--start=YYYY-MM-DD> --end=YYYY-MM-DD) [-afsj | -nflj] [options]
 
     Options:
         -l, --limit=NUMBER      Limit the harvester to NUMBER of documents
