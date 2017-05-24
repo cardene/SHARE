@@ -82,7 +82,6 @@ INSTALLED_APPS = [
     'share',
     'api',
 
-    'bots.archive',
     'bots.elasticsearch',
 ]
 
