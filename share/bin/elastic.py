@@ -33,13 +33,11 @@ def search(args, argv):
         args['--filter'] = {'id__isnull': False}
 
     kwargs = {
-        'filter': args['--filter'],
-        'index': args['--index'],
-        'url': args['--url'],
+        'filter': args.get('--filter'),
+        'index': args.get('--index'),
+        'url': args.get('--url'),
+        # 'models': args.get('--models'),
     }
-
-    if args['--models']:
-        kwargs['models'] = args['--models']
 
     if args['--async']:
         tasks.update_elasticsearch.apply_async((), kwargs)

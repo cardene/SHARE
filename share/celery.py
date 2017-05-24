@@ -1,15 +1,24 @@
-import logging
+import bz2
 import functools
+import io
+import logging
+
+import boto3
 
 from celery import states
 from celery.app.task import Context
-from celery.utils.time import maybe_timedelta
 from celery.backends.base import BaseDictBackend
+from celery.utils.time import maybe_timedelta
 
-from django.utils import timezone
 from django.conf import settings
+from django.core import serializers
+from django.core.paginator import Paginator
+from django.db import transaction
+from django.utils import timezone
 
+from share.util import chunked
 from share.models import CeleryTaskResult
+
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +106,19 @@ class CeleryDatabaseBackend(BaseDictBackend):
 
     @die_on_unhandled
     def cleanup(self):
-        self.TaskModel.objects.filter(date_modified=timezone.now() - maybe_timedelta(self.expires), status=states.SUCCESS).delete()
+        # require storage and folder settings on prod and staging
+        if settings.DEBUG is False:
+            if not settings.AWS_ACCESS_KEY_ID or not settings.AWS_SECRET_ACCESS_KEY:
+                raise Exception('No storage found! CeleryTasks will NOT be archived or deleted.')
+            if not settings.CELERY_TASK_FOLDER_NAME:
+                raise Exception('Folder name not set! Please define folder name in project.settings')
+
+        if not settings.AWS_ACCESS_KEY_ID or not settings.AWS_SECRET_ACCESS_KEY:
+            logger.warning('No storage found! CeleryTasks will NOT be archived but WILL be deleted.')
+        elif not settings.CELERY_TASK_BUCKET_NAME:
+            raise Exception('Bucket name not set! Please define bucket name in project.settings')
+
+        TaskResultCleaner(self.expires).archive()
 
     @die_on_unhandled
     def _get_task_meta_for(self, task_id):
@@ -106,6 +127,92 @@ class CeleryDatabaseBackend(BaseDictBackend):
     @die_on_unhandled
     def _forget(self, task_id):
         try:
-            self.TaskModel._default_manager.get(task_id=task_id).delete()
+            self.TaskModel.objects.get(task_id=task_id).delete()
         except self.TaskModel.DoesNotExist:
             pass
+
+
+class TaskResultCleaner:
+    """Taken from bots/archive/bot.py h/t @laurenbarker
+
+    """
+
+    TaskModel = CeleryTaskResult
+
+    TASK_TTLS = {
+    }
+
+    def __init__(self, expires, bucket=None, delete=True, chunk_size=5000):
+        self.bucket = bucket
+        self.chunk_size = chunk_size
+        self.delete = delete
+        self.expires = expires
+
+    def get_ttl(self, task_name):
+        return timezone.now() - self.TASK_TTLS.get(task_name, maybe_timedelta(self.expires))
+
+    def get_task_names(self):
+        return self.TaskModel.objects.distinct('task_name').values_list('task_name', flat=True)
+
+    def archive(self):
+        for name in self.get_task_names():
+            queryset = self.TaskModel.objects.filter(
+                task_name=name,
+                status=states.SUCCESS,
+                date_modified__lt=self.get_ttl(name)
+            )
+
+            if not queryset.exists():
+                logger.debug('No %s tasks eligible for archival', name)
+                continue
+
+            self.archive_queryset(name, queryset)
+            self.delete_queryset(queryset)
+
+    def archive_queryset(self, task_name, queryset):
+        if self.bucket is None:
+            return logger.warning('%r.bucket is None. Results will NOT be archived', self)
+
+        total = queryset.count()
+        logger.info('Found %s %ss eligible for archiving', total, task_name)
+        logger.info('Archiving in chunks of %d', self.chunk_size)
+
+        i = 0
+        for chunk in chunked(queryset, size=self.chunk_size):
+            compressed = self.compress_and_serialize(chunk)
+            self.put_s3(task_name, compressed)
+            i += len(chunk)
+            logger.info('Archived %d of %d', i, total)
+
+    def put_s3(self, location, data):
+        obj_name = '{}/{}-{}.json.bz2'.format(
+            settings.CELERY_TASK_FOLDER_NAME or '',
+            location,
+            timezone.now(),
+        )
+
+        boto3.resource('s3').Object(self.bucket, obj_name).put(
+            Body=data.getvalue(),
+            ServerSideEncryption='AES256'
+        )
+
+    def compress_and_serialize(self, queryset):
+        compressed_output = io.BytesIO()
+        compressed_output.write(bz2.compress(serializers.serialize('json', queryset).encode()))
+
+        return compressed_output
+
+    def delete_queryset(self, queryset):
+        if not self.delete:
+            logger.warning('%r.delete is False. Results will NOT be deleted', self)
+            return 0
+
+        try:
+            with transaction.atomic():
+                num_deleted, deleted_metadata = queryset.delete()
+        except Exception as e:
+            logger.exception('Failed to delete queryset with exception %s', e)
+            raise
+
+        logger.info('Deleted %s CeleryTasks', num_deleted)
+        return num_deleted

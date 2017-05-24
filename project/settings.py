@@ -61,7 +61,6 @@ INSTALLED_APPS = [
     'django.contrib.sites',
 
     'django_celery_beat',
-    'django_celery_results',
 
     'django_filters',
     'django_extensions',

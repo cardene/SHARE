@@ -12,6 +12,8 @@ from factory.django import DjangoModelFactory
 
 from django.utils import timezone
 
+from project import celery_app
+
 from share import models
 from share.harvest import BaseHarvester
 from share.transform import BaseTransformer
@@ -151,6 +153,7 @@ class RawDatumFactory(DjangoModelFactory):
 
 class CeleryTaskResultFactory(DjangoModelFactory):
     task_id = factory.Sequence(lambda x: uuid.uuid4())
+    task_name = fuzzy.FuzzyChoice(list(celery_app.tasks.keys()))
     status = fuzzy.FuzzyChoice(list(zip(*models.CeleryTaskResult._meta.get_field('status').choices))[0])
     celery_meta = {}
 

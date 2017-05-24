@@ -193,9 +193,8 @@ class ElasticSearchBot:
                 qs = model.objects.filter(**self.es_filter).values_list('id', flat=True)
             else:
                 most_recent_result = pendulum.parse(self.get_most_recently_modified())
-                adjusted_most_recent_result = most_recent_result.subtract(minutes=5)
-                logger.info('Looking for %ss that have been modified after %s', model, adjusted_most_recent_result)
-                qs = model.objects.filter(date_modified__gt=adjusted_most_recent_result).values_list('id', flat=True)
+                logger.info('Looking for %ss that have been modified after %s', model, most_recent_result)
+                qs = model.objects.filter(date_modified__gt=most_recent_result).values_list('id', flat=True)
 
             count = qs.count()
 

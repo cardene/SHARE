@@ -136,14 +136,14 @@ class BaseHarvester(metaclass=abc.ABCMeta):
         res = self.fetch_by_id(identifier)
         return RawDatum.objects.store_data(res.identifier, res.datum, self.config)
 
-    def harvest(self, today=False, **kwargs):
-        """Fetch data from Yesterday.
+    def harvest(self, **kwargs):
+        """Fetch data from yesterday.
 
         Yields:
             RawDatum
 
         """
-        return self.harvest_date_range(datetime.date.today() - datetime.timedelta(days=1), datetime.date.today(), **kwargs)
+        return self.harvest_date(datetime.date.today(), **kwargs)
 
     def harvest_date(self, date, **kwargs):
         """Harvest data from the specified date.
@@ -152,7 +152,7 @@ class BaseHarvester(metaclass=abc.ABCMeta):
             RawDatum
 
         """
-        return self.fetch_date_range(date - datetime.timedelta(days=1), date, **kwargs)
+        return self.harvest_date_range(date - datetime.timedelta(days=1), date, **kwargs)
 
     def harvest_date_range(self, start, end, limit=None, force=False, ignore_disabled=False, lock=True, **kwargs):
         """Fetch data from the specified date range.
