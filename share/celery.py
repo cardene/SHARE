@@ -12,7 +12,6 @@ from celery.utils.time import maybe_timedelta
 
 from django.conf import settings
 from django.core import serializers
-from django.core.paginator import Paginator
 from django.db import transaction
 from django.utils import timezone
 

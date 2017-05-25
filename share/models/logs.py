@@ -364,7 +364,7 @@ class LockableQuerySet(models.QuerySet):
         finally:
             if item and item.lock_acquired:
                 with connections[self.db].cursor() as cursor:
-                    cursor.execute('SELECT pg_advisory_unlock(%s::REGCLASS::INTEGER, %s)', [field.related_model._meta.db_table, item.id])
+                    cursor.execute('SELECT pg_advisory_unlock(%s::REGCLASS::INTEGER, %s)', [field.related_model._meta.db_table, getattr(item, field.attname)])
 
     def acquire_lock(self, relation):
         """Attempts to acquire an advisory lock for ALL rows returned by this queryset.
