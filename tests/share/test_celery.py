@@ -20,6 +20,7 @@ class TestResultArchiver:
     def mock_boto(self, monkeypatch):
         boto = mock.Mock()
         monkeypatch.setattr('share.celery.boto3', boto)
+        TaskResultCleaner.TASK_TTLS = {}
         return boto
 
     @pytest.fixture(autouse=True)
