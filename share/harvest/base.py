@@ -8,6 +8,7 @@ import warnings
 import pendulum
 import requests
 
+from django.conf import settings
 from django.utils import timezone
 
 from share.harvest.exceptions import HarvesterDisabledError
@@ -48,8 +49,10 @@ class BaseHarvester(metaclass=abc.ABCMeta):
         self.config = source_config
         self.serializer = self.SERIALIZER_CLASS(pretty)
 
-        # TODO Add custom user agent
-        self.requests = RateLimittedProxy(requests.Session(), self.config.rate_limit_allowance, self.config.rate_limit_period)
+        self.session = requests.Session()
+        self.session.headers.update({'User-Agent': settings.SHARE_USER_AGENT})
+        # TODO Make rate limit apply across threads
+        self.requests = RateLimittedProxy(self.session, self.config.rate_limit_allowance, self.config.rate_limit_period)
 
     def fetch_id(self, identifier):
         """Fetch a document by provider ID.
