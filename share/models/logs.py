@@ -276,11 +276,6 @@ class AbstractBaseLog(models.Model):
 
         return True
 
-    def save(self, *args, **kwargs):
-        if self._state.db == 'locking' and not kwargs.get('using'):
-            kwargs['using'] = 'default'
-        return super().save(*args, **kwargs)
-
     @contextmanager
     def handle(self):
         error = None

@@ -1,4 +1,5 @@
 import bz2
+import datetime
 import functools
 import io
 import logging
@@ -68,10 +69,11 @@ class CeleryDatabaseBackend(BaseDictBackend):
     @die_on_unhandled
     def _store_result(self, task_id, result, status, traceback=None, request=None, **kwargs):
         fields = {
-            'meta': {},
             'result': result,
             'traceback': traceback,
-            'celery_meta': self.current_task_children(request),
+            'meta': {
+                'children': self.current_task_children(request),
+            }
         }
 
         if status is not None:
@@ -117,7 +119,7 @@ class CeleryDatabaseBackend(BaseDictBackend):
         elif not settings.CELERY_TASK_BUCKET_NAME:
             raise Exception('Bucket name not set! Please define bucket name in project.settings')
 
-        TaskResultCleaner(self.expires).archive()
+        TaskResultCleaner(self.expires, bucket=settings.CELERY_TASK_BUCKET_NAME).archive()
 
     @die_on_unhandled
     def _get_task_meta_for(self, task_id):
@@ -139,6 +141,8 @@ class TaskResultCleaner:
     TaskModel = CeleryTaskResult
 
     TASK_TTLS = {
+        'bots.elasticsearch.tasks.index_model': datetime.timedelta(days=1),
+        'bots.elasticsearch.tasks.update_elasticsearch': datetime.timedelta(days=1),
     }
 
     def __init__(self, expires, bucket=None, delete=True, chunk_size=5000):
@@ -148,7 +152,7 @@ class TaskResultCleaner:
         self.expires = expires
 
     def get_ttl(self, task_name):
-        return timezone.now() - self.TASK_TTLS.get(task_name, maybe_timedelta(self.expires))
+        return timezone.now() - maybe_timedelta(self.TASK_TTLS.get(task_name, self.expires))
 
     def get_task_names(self):
         return self.TaskModel.objects.distinct('task_name').values_list('task_name', flat=True)

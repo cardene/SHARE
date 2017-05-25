@@ -3,6 +3,7 @@ import collections
 import datetime
 import logging
 import types
+import warnings
 
 import pendulum
 import requests
@@ -11,7 +12,7 @@ from django.utils import timezone
 
 from share.harvest.exceptions import HarvesterDisabledError
 from share.harvest.ratelimit import RateLimittedProxy
-from share.harvest.serialization import EverythingSerializer
+from share.harvest.serialization import DeprecatedDefaultSerializer
 from share.models import RawDatum
 
 
@@ -32,7 +33,7 @@ class BaseHarvester(metaclass=abc.ABCMeta):
 
     """
 
-    SERIALIZER_CLASS = EverythingSerializer
+    SERIALIZER_CLASS = DeprecatedDefaultSerializer
 
     def __init__(self, source_config, pretty=False, **kwargs):
         """
@@ -104,9 +105,13 @@ class BaseHarvester(metaclass=abc.ABCMeta):
         start = pendulum.Pendulum.instance(datetime.datetime.combine(start, datetime.time(0, 0, 0, 0, timezone.utc)))
         end = pendulum.Pendulum.instance(datetime.datetime.combine(end, datetime.time(0, 0, 0, 0, timezone.utc)))
 
-        # TODO Remove me in 2.9.0
         if hasattr(self, 'shift_range'):
-            logger.warning('%r implements a deprecated interface. Handle date transforms in _do_fetch. shift_range will no longer be called in 2.9.0')
+            warnings.warn(
+                '{!r} implements a deprecated interface. '
+                'Handle date transforms in _do_fetch. '
+                'shift_range will no longer be called in SHARE 2.9.0'.format(self),
+                DeprecationWarning
+            )
             start, end = self.shift_range(start, end)
 
         data_gen = self._do_fetch(start, end, **kwargs)
@@ -154,7 +159,7 @@ class BaseHarvester(metaclass=abc.ABCMeta):
         """
         return self.harvest_date_range(date - datetime.timedelta(days=1), date, **kwargs)
 
-    def harvest_date_range(self, start, end, limit=None, force=False, ignore_disabled=False, lock=True, **kwargs):
+    def harvest_date_range(self, start, end, limit=None, force=False, ignore_disabled=False, **kwargs):
         """Fetch data from the specified date range.
 
         Args:
@@ -163,7 +168,6 @@ class BaseHarvester(metaclass=abc.ABCMeta):
             limit (int, optional): The maximum number of unique data to harvest. Defaults to None.
             force (bool, optional): Disable all safety checks, unexpected exceptions will still be raised. Defaults to False.
             ignore_disabled (bool, optional): Don't check if this Harvester or Source is disabled or deleted. Defaults to False.
-            lock (bool, optional): Lock the SourceConfig before harvesting to prevent rate limit violations. Defaults to True.
             **kwargs: Forwared to _do_fetch.
 
         Yields:
@@ -231,7 +235,13 @@ class BaseHarvester(metaclass=abc.ABCMeta):
 
         """
         if hasattr(self, 'do_harvest'):
-            logger.warning('%r implements a deprecated interface. do_harvest has been replaced by _do_fetch for clarity', self)
+            warnings.warn(
+                '{!r} implements a deprecated interface. '
+                'do_harvest has been replaced by _do_fetch for clarity. '
+                'do_harvest will no longer be called in SHARE 2.11.0'.format(self),
+                DeprecationWarning
+            )
+            logger.warning('%r implements a deprecated interface. ', self)
             return self.do_harvest(start, end, **kwargs)
 
         raise NotImplementedError()

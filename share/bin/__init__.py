@@ -16,7 +16,7 @@ MODULES = (
 )
 
 
-def main(argv, bin_name='share'):
+def main(argv):
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'project.settings')  # noqa
     django.setup()
 
@@ -26,6 +26,4 @@ def main(argv, bin_name='share'):
     execute_cmd(sys.argv[1:])
 
 if __name__ == '__main__':
-    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'project.settings')  # noqa
-
     main(sys.argv)

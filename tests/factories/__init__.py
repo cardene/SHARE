@@ -155,7 +155,6 @@ class CeleryTaskResultFactory(DjangoModelFactory):
     task_id = factory.Sequence(lambda x: uuid.uuid4())
     task_name = fuzzy.FuzzyChoice(list(celery_app.tasks.keys()))
     status = fuzzy.FuzzyChoice(list(zip(*models.CeleryTaskResult._meta.get_field('status').choices))[0])
-    celery_meta = {}
 
     class Meta:
         model = models.CeleryTaskResult

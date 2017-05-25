@@ -9,8 +9,9 @@ class CeleryTaskResultAdmin(admin.ModelAdmin):
         'task_name',
         'task_args', 'task_kwargs',
         'result', 'traceback',
+        'meta',
         'date_created', 'date_modified',
-        'share_version', 'share_meta',
+        'share_version'
     )
 
     def task_args(self, obj):
@@ -18,6 +19,3 @@ class CeleryTaskResultAdmin(admin.ModelAdmin):
 
     def task_kwargs(self, obj):
         return obj.meta['kwargs']
-
-    def share_meta(self, obj):
-        return obj.meta

@@ -17,7 +17,6 @@ class CeleryTaskResult(models.Model):
     task_id = models.UUIDField(db_index=True)
 
     meta = DateTimeAwareJSONField(null=True, editable=False)
-    celery_meta = DateTimeAwareJSONField(editable=False)
     result = DateTimeAwareJSONField(null=True, editable=False)
     task_name = models.TextField(null=True, blank=True, editable=False)
     traceback = models.TextField(null=True, blank=True, editable=False)
@@ -28,8 +27,8 @@ class CeleryTaskResult(models.Model):
     share_version = models.TextField(default=get_share_version, editable=False)
 
     class Meta:
-        verbose_name = 'Task Result'
-        verbose_name_plural = 'Task Results'
+        verbose_name = 'Celery Task Result'
+        verbose_name_plural = 'Celery Task Results'
 
     def as_dict(self):
         return {
@@ -38,5 +37,5 @@ class CeleryTaskResult(models.Model):
             'result': self.result,
             'date_done': self.date_modified,
             'traceback': self.traceback,
-            'meta': self.celery_meta,
+            'meta': self.meta,
         }

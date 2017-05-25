@@ -60,44 +60,6 @@ def test_sources_have_access_tokens():
         assert source.user.authorization()
 
 
-class TestHarvestExclusiveParameters:
-
-    @pytest.mark.parametrize('log_id, source_id, source_config_id', [
-        (0, 0, 0),
-        (None, 0, 0),
-        (0, None, 0),
-        (0, 0, None),
-    ])
-    def test_incorrect(self, log_id, source_id, source_config_id):
-        with pytest.raises(ValueError) as e:
-            tasks.harvest(
-                log_id=log_id,
-                source_id=source_id,
-                source_config_id=source_config_id,
-            )
-        assert e.value.args == ('Only one of log_id, source_id, or source_config_id may be specified. Got {}'.format(
-            (log_id, source_id, source_config_id)
-        ), )
-
-    @pytest.mark.parametrize('log_id, source_id, source_config_id', [
-        (None, None, None),
-        (0, None, None),
-        (None, 0, None),
-        (None, None, 0),
-    ])
-    def test_correct(self, log_id, source_id, source_config_id):
-        class SpecialException(Exception):
-            pass
-
-        with pytest.raises(SpecialException):
-            with mock.patch('share.tasks.HarvestLog.objects.all', side_effect=SpecialException()):
-                tasks.harvest(
-                    log_id=log_id,
-                    source_id=source_id,
-                    source_config_id=source_config_id,
-                )
-
-
 @pytest.mark.django_db
 class TestHarvestTaskWithLog:
 
@@ -130,7 +92,7 @@ class TestHarvestTask:
         log = factories.HarvestLogFactory(source_config=source_config)
 
         if lock_config:
-            t = SyncedThread(source_config.acquire_lock, kwargs={'using': 'locking'})
+            t = SyncedThread(source_config.acquire_lock)
             t.start()
 
         try:
@@ -154,7 +116,7 @@ class TestHarvestTask:
         log = factories.HarvestLogFactory(source_config=source_config)
 
         if lock_config:
-            t = SyncedThread(source_config.acquire_lock, kwargs={'using': 'locking'})
+            t = SyncedThread(source_config.acquire_lock)
             t.start()
 
         try:

@@ -22,7 +22,7 @@ class DictSerializer(RawDatumSerializer):
         return json.dumps(value, sort_keys=True, indent=4 if self.pretty else None)
 
 
-class EverythingSerializer(RawDatumSerializer):
+class DeprecatedDefaultSerializer(RawDatumSerializer):
     def __init__(self, pretty=False):
         super().__init__(pretty=pretty)
         self.warned = False

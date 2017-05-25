@@ -75,17 +75,13 @@ def disambiguate(self, normalized_id):
 
 
 @celery.shared_task(bind=True, retries=5)
-def harvest(self, log_id=None, source_id=None, source_config_id=None, ignore_disabled=False, ingest=True, exhaust=True, superfluous=False, force=False, limit=None):
+def harvest(self, log_id=None, ignore_disabled=False, ingest=True, exhaust=True, superfluous=False, force=False, limit=None):
     """Complete the harvest of the given HarvestLog or next the next available HarvestLog.
-
-    Note: log_id, source_id, and source_config_id are all mutually exclusive.
 
     Args:
         log_id (int, optional): Harvest the given log. Defaults to None.
             If the given log cannot be locked, the task will retry indefinitely.
             If the given log belongs to a disabled or deleted Source or SourceConfig, the task will fail.
-        source_id (int, optional): Only look for logs for this SourceConfig.
-        source_config_id (int, optional): Only look for logs for this Source.
         ingest (bool, optional): Whether or not to start the full ingest process for harvested data. Defaults to True.
         exhaust (bool, optional): Whether or not to start another harvest task if one is found. Defaults to True.
             Used to prevent a backlog of harvests. If we have a valid job, spin off another task to eat through
@@ -93,12 +89,6 @@ def harvest(self, log_id=None, source_id=None, source_config_id=None, ignore_dis
         superfluous (bool, optional): Re-ingest Rawdata that we've already collected. Defaults to False.
 
     """
-
-    if int(log_id is not None) + int(source_id is not None) + int(source_config_id is not None) > 1:
-        raise ValueError('Only one of log_id, source_id, or source_config_id may be specified. Got {}'.format(
-            (log_id, source_id, source_config_id)
-        ))
-
     qs = HarvestLog.objects.all()
 
     if log_id is not None:
@@ -159,7 +149,7 @@ def harvest(self, log_id=None, source_id=None, source_config_id=None, ignore_dis
                 if ingest and (datum.created or superfluous):
                     transform.apply_async((datum.id, ))
         except HarvesterConcurrencyError as e:
-            # If log_id, source_id, or source_config_id has been specified there's a chance that
+            # If log_id has been specified there's a chance that
             # the advisory lock was not, in fact, acquired. If so retry indefinitely to preserve
             # existing functionality
             # Use random to add jitter to help break up locking issues
