@@ -1,29 +1,5 @@
 Feature: Harvester Scheduling
 
-  # Scenario: Disabled SourceConfig
-  #   Given a source "Neat.o" that harvests nightly at 00:30
-  #   And source config "Neat.o" is disabled
-  #   When harvests are scheduled at 00:30
-  #   Then no harvest logs will exist
-
-  # Scenario: Deleted Source
-  #   Given a source "Neat.o" that harvests nightly at 00:30
-  #   And source "Neat.o" is disabled
-  #   When harvests are scheduled at 00:30
-  #   Then no harvest logs will exist
-
-  # Scenario: Scheduling disabled SourceConfigs:
-  #   Given a source config, neat.o, that harvests daily and is disabled
-  #   And the last harvest of neat.o was 2017-01-01
-  #   When harvests are scheduled on 2017-01-10
-  #   Then neat.o will have 1 harvest logs
-
-  # Scenario: Scheduling disabled Sources:
-  #   Given a source config, neat.o, that harvests daily
-  #   And the last harvest of neat.o was <PREVIOUS END DATE>
-  #   When harvests are scheduled on <DATE>
-  #   Then neat.o will have <NUM> harvest logs
-
   Scenario Outline: Scheduling harvests
     Given a source config, neat.o, that harvests <INTERVAL>
     And the last harvest of neat.o was <PREVIOUS END DATE>
@@ -88,7 +64,3 @@ Feature: Harvester Scheduling
       | weekly      |
       | fortnightly |
       | yearly      |
-
-  # Scenario: Scheduling harvests with conflicts
-
-  # Scenario: Scheduling updated harvests

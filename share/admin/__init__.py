@@ -1,10 +1,7 @@
 import datetime
 from furl import furl
 
-import celery
-
 from django import forms
-from django.apps import apps
 from django.conf.urls import url
 from django.contrib import admin
 from django.contrib.admin import SimpleListFilter
@@ -30,7 +27,6 @@ from share.models.creative import AbstractCreativeWork
 from share.models.ingest import RawDatum, Source, SourceConfig, Harvester, Transformer
 from share.models.logs import HarvestLog
 from share.models.registration import ProviderRegistration
-from share.robot import RobotAppConfig
 
 
 admin.site.register(AbstractCreativeWork, CreativeWorkAdmin)
@@ -72,40 +68,6 @@ class ChangeSetAdmin(admin.ModelAdmin):
 
     def status_(self, obj):
         return ChangeSet.STATUS[obj.status].title()
-
-
-class AppLabelFilter(admin.SimpleListFilter):
-    title = 'App Label'
-    parameter_name = 'app_label'
-
-    def lookups(self, request, model_admin):
-        return sorted([
-            (config.label, config.label)
-            for config in apps.get_app_configs()
-            if isinstance(config, RobotAppConfig)
-        ])
-
-    def queryset(self, request, queryset):
-        if self.value():
-            return queryset.filter(app_label=self.value())
-        return queryset
-
-
-class TaskNameFilter(admin.SimpleListFilter):
-    title = 'Task'
-    parameter_name = 'task'
-
-    def lookups(self, request, model_admin):
-        return sorted(
-            (key, key)
-            for key in celery.current_app.tasks.keys()
-            if key.startswith('share.')
-        )
-
-    def queryset(self, request, queryset):
-        if self.value():
-            return queryset.filter(name=self.value())
-        return queryset
 
 
 class RawDatumAdmin(admin.ModelAdmin):

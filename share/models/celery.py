@@ -13,12 +13,12 @@ TASK_STATE_CHOICES = sorted(zip(ALL_STATES, ALL_STATES))
 class CeleryTaskResult(models.Model):
 
     correlation_id = models.TextField(blank=True)
-    status = models.CharField(max_length=50, default=states.PENDING, choices=TASK_STATE_CHOICES)
-    task_id = models.UUIDField(db_index=True)
+    status = models.CharField(db_index=True, max_length=50, default=states.PENDING, choices=TASK_STATE_CHOICES)
+    task_id = models.UUIDField(db_index=True, unique=True)
 
     meta = DateTimeAwareJSONField(null=True, editable=False)
     result = DateTimeAwareJSONField(null=True, editable=False)
-    task_name = models.TextField(null=True, blank=True, editable=False)
+    task_name = models.TextField(null=True, blank=True, editable=False, db_index=True)
     traceback = models.TextField(null=True, blank=True, editable=False)
 
     date_created = models.DateTimeField(auto_now_add=True, editable=False)
@@ -29,6 +29,9 @@ class CeleryTaskResult(models.Model):
     class Meta:
         verbose_name = 'Celery Task Result'
         verbose_name_plural = 'Celery Task Results'
+        indexes = (
+            models.Index(fields=['-date_modified', '-id']),
+        )
 
     def as_dict(self):
         return {
