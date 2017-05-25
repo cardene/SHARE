@@ -243,7 +243,8 @@ def pseudo_bisection(self, es_url, es_index, min_date, max_date, dry=False):
             'date_created__range': [min_date, max_date]
         })
 
-        return logger.info('Spawned %r', task)
+        logger.info('Spawned %r', task)
+        return
 
     logger.debug('Did NOT meet the threshold of %d total works to index or %d%% missing works.', MAX_DB_COUNT, MIN_MISSING_RATIO * 100)
 

@@ -109,7 +109,8 @@ def harvest(self, log_id=None, ignore_disabled=False, ingest=True, exhaust=True,
 
     with qs.lock_first('source_config') as log:
         if log is None and log_id is None:
-            return logger.warning('No HarvestLogs are currently available')
+            logger.warning('No HarvestLogs are currently available')
+            return None
 
         if log is None and log_id is not None:
             # If an id was given to us, we should have gotten a log
@@ -130,7 +131,8 @@ def harvest(self, log_id=None, ignore_disabled=False, ingest=True, exhaust=True,
 
         if log.completions > 0 and log.status == HarvestLog.STATUS.succeeded and not superfluous:
             log.skip(HarvestLog.SkipReasons.duplicated)
-            return logger.warning('%r has already been harvested. Force a re-run with superfluous=True', log)
+            logger.warning('%r has already been harvested. Force a re-run with superfluous=True', log)
+            return None
         elif log.completions > 0 and log.status == HarvestLog.STATUS.succeeded:
             logger.info('%r has already been harvested. Re-running superfluously', log)
 

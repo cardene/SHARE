@@ -70,7 +70,12 @@ class Migration(migrations.Migration):
             name='status',
             field=models.IntegerField(choices=[(0, 'Enqueued'), (1, 'In Progress'), (2, 'Failed'), (3, 'Succeeded'), (4, 'Rescheduled'), (6, 'Forced'), (7, 'Skipped'), (8, 'Retrying'), (9, 'Cancelled')], db_index=True, default=0),
         ),
-        migrations.AlterField(
+        migrations.RemoveField(
+            model_name='normalizeddata',
+            name='tasks',
+            field=models.ManyToManyField(to='share.CeleryTaskResult'),
+        ),
+        migrations.AddField(
             model_name='normalizeddata',
             name='tasks',
             field=models.ManyToManyField(to='share.CeleryTaskResult'),

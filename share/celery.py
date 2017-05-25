@@ -174,7 +174,8 @@ class TaskResultCleaner:
 
     def archive_queryset(self, task_name, queryset):
         if self.bucket is None:
-            return logger.warning('%r.bucket is None. Results will NOT be archived', self)
+            logger.warning('%r.bucket is None. Results will NOT be archived', self)
+            return None
 
         total = queryset.count()
         logger.info('Found %s %ss eligible for archiving', total, task_name)
