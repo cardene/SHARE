@@ -73,7 +73,6 @@ class Migration(migrations.Migration):
         migrations.RemoveField(
             model_name='normalizeddata',
             name='tasks',
-            field=models.ManyToManyField(to='share.CeleryTaskResult'),
         ),
         migrations.AddField(
             model_name='normalizeddata',
