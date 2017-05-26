@@ -84,10 +84,6 @@ def harvest(args, argv):
     kwargs = {k: v for k, v in {
         'limit': int(args['--limit']) if args.get('--limit') else None,
         'set_spec': args.get('--set-spec'),
-        'ignore_disabled': args.get('--ignore-disabled'),
-        'force': args.get('--force'),
-        'superfluous': args.get('--superfluous'),
-        'ingest': not args.get('--no-ingest'),
     }.items() if v is not None}
 
     if not args['<date>'] and not (args['--start'] and args['--end']):

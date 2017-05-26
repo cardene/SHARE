@@ -100,6 +100,7 @@ def harvest(self, log_id=None, ignore_disabled=False, ingest=True, exhaust=True,
         if not ignore_disabled:
             qs = qs.exclude(
                 source_config__disabled=True,
+            ).exclude(
                 source_config__source__is_deleted=True
             )
 
